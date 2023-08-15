@@ -5,7 +5,7 @@
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
 ;; Version: 0.1
 ;; URL: https://github.com/ultronozm/symtex.el
-;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.1"))
+;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.1") (sage-shell-mode "0.3"))
 ;; Keywords: tex, tools, convenience
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -149,6 +149,7 @@ Otherwise, prompt for a SAGE function to apply."
 ;;;###autoload
 (defun symtex-process (result-expr &optional latex-expr)
   (interactive "sSAGE expression to evaluate:")
+  (message "sup nerds")
   (let ((sage-code (mapconcat
 		     #'identity
 		     (list

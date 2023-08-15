@@ -149,7 +149,6 @@ Otherwise, prompt for a SAGE function to apply."
 ;;;###autoload
 (defun symtex-process (result-expr &optional latex-expr)
   (interactive "sSAGE expression to evaluate:")
-  (message "sup nerds")
   (let ((sage-code (mapconcat
 		     #'identity
 		     (list

@@ -1,10 +1,11 @@
-;;; symtex.el --- glue between SymPy and LaTeX  -*- lexical-binding: t; -*-
+;;; symtex.el --- Use SymPy/SAGE in a TeX buffer  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2023  Paul D. Nelson
 
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
 ;; Version: 0.1
 ;; URL: https://github.com/ultronozm/symtex.el
+;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.1"))
 ;; Keywords: tex, tools, convenience
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -22,9 +23,13 @@
 
 ;;; Commentary:
 
-;; 
+;; This package provides functions for evaluating LaTeX math
+;; expressions with SageMath.
 
 ;;; Code:
+
+(require 'sage-shell-mode)
+(require 'czm-tex-util)
 
 (defgroup symtex nil
   "Symtex: A package for parsing and evaluating LaTeX math expressions with SageMath."
@@ -66,8 +71,7 @@
 	     "\n")
   "Expression used for converting SymPy to LaTeX."
   :type 'string
-  :group 'symtex
-  )
+  :group 'symtex)
 
 (defcustom symtex-sage-src-block
   "#+begin_src sage :results silent\n%s\n#+end_src"
@@ -77,11 +81,11 @@
 
 (defcustom symtex-finale
   "result_str"
-  "Final expression used to return the result of converting SymPy to
-LaTeX."
+  "Expression returned when converting SymPy to LaTeX.
+This is the last expression in the Sage source block.  The idea
+is that you can customize this to do some post-processing."
   :type 'string
-  :group 'symtex
-  )
+  :group 'symtex)
 
 (defun symtex-setup-python ()
   "Set variables for using the Python version of the parser."
@@ -112,10 +116,14 @@ LaTeX."
 
 ;;;###autoload
 (defun symtex-dwim (&optional arg)
+  "Apply SAGE function to the current environment or region.
+With prefix ARG, simply return the result of calling the SAGE
+function \"expand\" on the current environment or region.
+Otherwise, prompt for a SAGE function to apply."
   (interactive "P")
   (let* ((bounds (if (use-region-p)
                      (cons (region-beginning) (region-end))
-                   (current-latex-environment-bounds)))
+                   (czm-tex-util-environment-bounds)))
 	 (beg (car bounds))
 	 (end (cdr bounds)))
     (symtex-dwim-region beg end arg)))

@@ -3,9 +3,9 @@
 ;; Copyright (C) 2023  Paul D. Nelson
 
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
-;; Version: 0.1
+;; Version: 0.0
 ;; URL: https://github.com/ultronozm/symtex.el
-;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.1") (sage-shell-mode "0.3"))
+;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.0") (sage-shell-mode "0.3"))
 ;; Keywords: tex, tools, convenience
 
 ;; This program is free software; you can redistribute it and/or modify

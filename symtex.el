@@ -1,11 +1,11 @@
-;;; symtex.el --- Use SymPy/SAGE in a TeX buffer  -*- lexical-binding: t; -*-
+;;; symtex.el --- Evaluate SAGE code on parts of a TeX buffer  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2023  Paul D. Nelson
 
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
 ;; Version: 0.0
 ;; URL: https://github.com/ultronozm/symtex.el
-;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.0") (sage-shell-mode "0.3"))
+;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.0") (sage-shell-mode "0.3") (ob-sagemath "0.4"))
 ;; Keywords: tex, tools, convenience
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -23,13 +23,17 @@
 
 ;;; Commentary:
 
-;; This package provides functions for evaluating LaTeX math
-;; expressions with SageMath.
+;; This package provides functions for operating on LaTeX math
+;; expressions using Sage.  See the README or the documentation of
+;; `symtex-dwim' for details.
+;; 
 
 ;;; Code:
 
 (require 'sage-shell-mode)
 (require 'czm-tex-util)
+(require 'python)
+(require 'ob-sagemath)
 
 (defgroup symtex nil
   "Symtex: A package for parsing and evaluating LaTeX math expressions with SageMath."
@@ -38,15 +42,20 @@
 
 (defcustom symtex-expand-expression
   "expr.expand()*2/2"
-  "SAGE expression for expansion."
+  "sage expression for expansion."
   :type 'string
   :group 'symtex)
 
-(defcustom symtex-latex2sympy-import-statement
-  "load(\"~/doit/sage/cool_latex_parse.py\")"
-  "Path to the parsing library file."
-  :type 'string
-  :group 'symtex)
+(defconst symtex--base-dir
+  (file-name-directory
+   (or load-file-name
+       (buffer-file-name)))
+  "Directory containing this file.")
+
+(defconst symtex--latex2sympy-import-statement
+  (format "load(\"%s\")" (expand-file-name "latex2sympy.py" symtex--base-dir))
+  ;; "load(\"~/doit/sage/cool_latex_parse.py\")"
+  "Path to the parsing library file.")
 
 (defcustom symtex-temp-dir
   "~/temp-sage/"
@@ -87,111 +96,12 @@ is that you can customize this to do some post-processing."
   :type 'string
   :group 'symtex)
 
-(defun symtex-setup-python ()
-  "Set variables for using the Python version of the parser."
-  (interactive)
-  (setq
-   symtex-latex2sympy-import-statement
-   "exec(open(\"/Users/au710211/doit/sage/cool_latex_parse.py\").read())"
-   symtex-sympy2latex-expr
-   "result_str = sympy2latex(result_expr)"
-   symtex-sage-src-block
-   "#+begin_src python :results silent :session\n%s\n#+end_src"
-   symtex-finale
-   "result_str"))
-
-(defun symtex-setup-sage ()
-  "Set variables for using the Sage version of the parser."
-  (interactive)
-  (setq
-   symtex-latex2sympy-import-statement
-   "load(\"~/doit/sage/cool_latex_parse.py\")"
-   symtex-sympy2latex-expr
-   ;; "result_str = sympy2latex(result_expr._sage_()._sympy_())"
-   "result_str = sympy2latex(result_expr)"
-   symtex-sage-src-block
-   "#+begin_src sage :results silent\n%s\n#+end_src"
-   symtex-finale
-   "result_str"))
-
-;;;###autoload
-(defun symtex-dwim (&optional arg)
-  "Apply SAGE function to the current environment or region.
-With prefix ARG, simply return the result of calling the SAGE
-function \"expand\" on the current environment or region.
-Otherwise, prompt for a SAGE function to apply."
-  (interactive "P")
-  (let* ((bounds (if (use-region-p)
-                     (cons (region-beginning) (region-end))
-                   (czm-tex-util-environment-bounds)))
-	 (beg (car bounds))
-	 (end (cdr bounds)))
-    (symtex-dwim-region beg end arg)))
-
-(defun symtex-dwim-region (beg end &optional arg)
-  (interactive "r\nP")
-  (if arg
-      (symtex-read-expand-region beg end)
-    (symtex-read-evaluate-region beg end)))
-
-(defun symtex-read-expand-region (beg end)
-  (interactive "r")
-  (symtex-read-evaluate-region beg end symtex-expand-expression))
-
-(defun symtex-read-evaluate-region (beg end &optional result-expr)
-  (interactive "r")
-  (unless result-expr
-    (setq result-expr
-          (read-string "SAGE function to apply (use 'expr' as variable):")))
-  (let ((latex-expr (buffer-substring-no-properties beg end)))
-    (symtex-process result-expr latex-expr)))
-
-;;;###autoload
-(defun symtex-process (result-expr &optional latex-expr)
-  (interactive "sSAGE expression to evaluate:")
-  (let ((sage-code (mapconcat
-		     #'identity
-		     (list
-		      symtex-latex2sympy-import-statement
-		      (when latex-expr
-			(format
-			 (mapconcat
-			  #'identity
-			  (list
-			   "expr_str = r'''{%s}'''"
-			   "expr = %s"
-			   ;; "if not exprs:"
-			   ;; "    exprs = [expr]"
-			   ;; "else:"
-			   ;; "    exprs.append(expr)"
-			   )
-			  "\n")
-			 latex-expr symtex-latex2sympy-expr))
-		      (format "result_expr = %s" result-expr)
-		      ;; "if not result_exprs:"
-		      ;; "    result_exprs = [result_expr]"
-		      ;; "else:"
-		      ;; "    result_exprs.append(result_expr)"
-		      symtex-sympy2latex-expr
-		      symtex-finale)
-		     "\n")))
-    (symtex-evaluate-copy-result sage-code)))
-
-(defun symtex-evaluate-copy-result (sage-code)
-  (interactive)
-  (let* ((result (symtex-evaluate sage-code))
-	 (formatted-result (symtex-format result)))
-    (kill-new formatted-result)
-    (message "Result saved to kill-ring: %s" formatted-result)))
-
-(defun symtex-format (result)
-  (let ((formatted-result result))
-    (setq formatted-result (substring formatted-result 1 -1))
-    (setq formatted-result (string-replace "\\\\" "\\" formatted-result))
-    (setq formatted-result (string-replace "bmatrix" "pmatrix" formatted-result))
-    formatted-result))
-
-(defun symtex-evaluate (sage-code)
+(defun symtex--evaluate (sage-code)
+  "Evaluate SAGE-CODE.
+Create an org-mode sage source block in a temporary buffer, call
+`org-babel-execute-src-block', and return the result.  For future
+reference and debugging, the sage code used to produce this
+result is saved in `symtex-temp-dir'."
   (let* ((date-str (format-time-string "%Y-%m-%d"))
          (org-file-path (expand-file-name (concat "temp-sage-" date-str ".org") symtex-temp-dir ))
          (org-buffer (find-file-noselect org-file-path))
@@ -212,17 +122,153 @@ Otherwise, prompt for a SAGE function to apply."
       (save-buffer))
     result))
 
-(provide 'symtex)
-;;; symtex.el ends here
+(defun symtex--tidy (result)
+  "Tidy the RESULT of some sage code evaluation."
+  (let ((tidied-result result))
+    (setq tidied-result (substring tidied-result 1 -1))
+    (setq tidied-result (string-replace "\\\\" "\\" tidied-result))
+    (setq tidied-result (string-replace "bmatrix" "pmatrix" tidied-result))
+    tidied-result))
 
+(defun symtex--evaluate-copy-result (sage-code)
+  "Evaluate SAGE-CODE.  Save the (tidied) result in the kill ring."
+  (interactive)
+  (let* ((result (symtex--evaluate sage-code))
+	 (tidied-result (symtex--tidy result)))
+    (kill-new tidied-result)
+    (message "Result saved to kill-ring: %s" tidied-result)))
+
+;;;###autoload
+(defun symtex-process (output &optional input)
+  "Evaluate sage code OUTPUT using TeX code INPUT.
+The sage code OUTPUT is evaluated, its result converted to TeX
+and stored in the kill ring.  If INPUT is non-nil, then it is
+converted to a sage object using latex2sympy and stored in the
+sage variable `expr' prior to the evaluation of OUTPUT."
+  (interactive "sSage expression to evaluate:")
+  (let ((sage-code (mapconcat
+		     #'identity
+		     (list
+		      symtex--latex2sympy-import-statement
+		      (when input
+			(format
+			 (mapconcat
+			  #'identity
+			  (list
+			   "expr_str = r'''{%s}'''"
+			   "expr = %s"
+			   ;; "if not exprs:"
+			   ;; "    exprs = [expr]"
+			   ;; "else:"
+			   ;; "    exprs.append(expr)"
+			   )
+			  "\n")
+			 input symtex-latex2sympy-expr))
+		      (format "result_expr = %s" output)
+		      ;; "if not result_exprs:"
+		      ;; "    result_exprs = [result_expr]"
+		      ;; "else:"
+		      ;; "    result_exprs.append(result_expr)"
+		      symtex-sympy2latex-expr
+		      symtex-finale)
+		     "\n")))
+    (symtex--evaluate-copy-result sage-code)))
+
+(defun symtex--read-evaluate-region (beg end &optional output)
+  "Evaluate SAGE expression involving TeX region (BEG . END).
+If OUTPUT is nil, then we prompt for it from the minibuffer.  The
+result is stored in the kill ring; see the documentation for
+`symtex-process'."
+  (interactive "r")
+  (unless output
+    (setq output
+          (read-string "Sage function to apply (use 'expr' as variable):")))
+  (let ((input (buffer-substring-no-properties beg end)))
+    (symtex-process output input)))
+
+(defun symtex--read-expand-region (beg end)
+  "Symbolically expand TeX region between BEG and END.
+The customization variable `symtex-expand-expression' gives the
+expression used to expand the region contents.  The result is
+stored in the kill ring; see the documentation for
+`symtex-process'."
+  (interactive "r")
+  (symtex--read-evaluate-region beg end symtex-expand-expression))
+
+(defun symtex-dwim-region (beg end &optional arg)
+  "Evaluate sage expression involving the region (BEG . END).
+This user-facing function is
+intended to be called interactively with an active region.  If
+prefix ARG is provided, then the contents of that region are
+simply expanded (via `symtex-expand-expression').  Otherwise, the
+user is prompted for a sage expression to evaluate.  See the
+documentation for `symtex-dwim' for more information."
+  (interactive "r\nP")
+  (if arg
+      (symtex--read-expand-region beg end)
+    (symtex--read-evaluate-region beg end)))
+
+;;;###autoload
+(defun symtex-dwim (&optional arg)
+  "Evaluate sage expression, storing result as TeX in the kill ring.
+If the region is not active, then prompt for sage expression to
+evaluate.
+
+If the region is active, then convert its contents to a sage
+expression, store the result of that conversion in the sage
+variable `expr', and prompt for a sage expression to evaluate.
+
+With prefix ARG, evaluate the sage expression stored in the
+variable `symtex-expand-expression'."
+  (interactive "P")
+  (if (use-region-p)
+      (let* ((bounds (cons (region-beginning) (region-end)))
+	     (beg (car bounds))
+	     (end (cdr bounds)))
+        (symtex-dwim-region beg end arg))
+    (call-interactively #'symtex-process)))
+
+;; old experiments:
 
 ;; (sage-code (mapconcat
 ;; 		    #'identity
 ;; 		    (list
-;; 		     symtex-latex2sympy-import-statement
+;; 		     symtex--latex2sympy-import-statement
 ;; 		     (when latex-expr
 ;; 		       (format "expr_str = r'''{%s}'''\n%s" latex-expr symtex-latex2sympy-expr))
 ;; 		     (format "result_expr = %s" result-expr)
 ;; 		     (format "%s(result_expr)" symtex-sympy2latex-expr)
 ;; 		     "latex(result_expr._sage_())")
 ;; 		    "\n"))
+
+
+;; (defun symtex-setup-python ()
+;;   "Set variables for using the Python version of the parser."
+;;   (interactive)
+;;   (setq
+;;    symtex--latex2sympy-import-statement
+;;    "exec(open(\"/Users/au710211/doit/sage/cool_latex_parse.py\").read())"
+;;    symtex-sympy2latex-expr
+;;    "result_str = sympy2latex(result_expr)"
+;;    symtex-sage-src-block
+;;    "#+begin_src python :results silent :session\n%s\n#+end_src"
+;;    symtex-finale
+;;    "result_str"))
+
+;; (defun symtex-setup-sage ()
+;;   "Set variables for using the Sage version of the parser."
+;;   (interactive)
+;;   (setq
+;;    symtex--latex2sympy-import-statement
+;;    "load(\"~/doit/sage/cool_latex_parse.py\")"
+;;    symtex-sympy2latex-expr
+;;    ;; "result_str = sympy2latex(result_expr._sage_()._sympy_())"
+;;    "result_str = sympy2latex(result_expr)"
+;;    symtex-sage-src-block
+;;    "#+begin_src sage :results silent\n%s\n#+end_src"
+;;    symtex-finale
+;;    "result_str"))
+
+
+(provide 'symtex)
+;;; symtex.el ends here

@@ -1,0 +1,63 @@
+#+title: symtex.el: Evaluate SAGE code on parts of a TeX buffer
+#+author: Paul Nelson
+
+* Overview
+Sometimes we need to perform computations (symbolic, numerical, ...) involving mathematical expression that we have already typeset in TeX.  This package provides commands that simplify doing.
+
+The main entry point is the command =symtex-dwim=, bound to =C-c v= by default.  This command evaluates a SAGE expression (in a SAGE session, which we can access separately via the =*Sage*= buffer) and stores the result of that evaluation, converted to TeX, in the [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Kill-Ring.html][kill-ring]], from where we are free to [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Yanking.html][yank]] it into our TeX buffer.
+
+If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html_node/elisp/The-Region.html][active region]], then the contents of that region, converted from TeX, are stored in the SAGE object =expr=, which we can use in our own expression.  For example, we can cube a matrix by highlighting its TeX code, running =symtex-dwim=, and entering =expr^3= in the minibuffer:
+
+#+attr_html: :width 800px
+#+attr_latex: :width 800px
+[[./img/cube.gif]]
+
+(The live previewing is via the package [[https://github.com/ultronozm/czm-preview.el][czm-preview]].)
+
+When the region is inactive, the command =symtex-dwim= behaves similarly, except that =expr= is not set to anything before the SAGE expression that we provide is evaluated.
+
+If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html_node/elisp/The-Region.html][active region]] and a [[https://www.emacswiki.org/emacs/PrefixArgument][prefix argument]] (=C-u C-c v= by default), then we evaluate a "default" expression, which by default is essentially =expr.expand()= (see the customization variable =symtex-expand-expression=).  Here's an example where we use this feature to multiply some matrices.
+
+#+attr_html: :width 800px
+#+attr_latex: :width 800px
+[[./img/pic.gif]]
+
+A common workflow for me is to assign some of my TeX expressions to SAGE variables.  I do this by highlighting those expressions, running =symtex-dwim=, and entering, for instance, ~a = expr~, which assigns the highlighted expression to the variable =a=.  I then perform some calculations directly in the =*Sage*= buffer.  When I've produced some result that I want to put back in my TeX buffer, I call =symtex-dwim= with an inactive region.
+
+An alternative approach would be to use [[https://github.com/sagemath/ob-sagemath][ob-sagemath]] in an org-mode buffer, which can naturally combine SAGE code and TeX, but I often find it more convenient to work in a TeX buffer, so that I have direct access to [[https://www.gnu.org/software/auctex/manual/auctex/Installation.html#Installation][AUCTeX]] and to [[https://github.com/ultronozm/czm-tex-edit.el][packages]] [[https://github.com/ultronozm/czm-tex-fold.el][that]] [[https://github.com/ultronozm/czm-tex-jump.el][build]] [[https://github.com/ultronozm/czm-tex-ref.el][upon]] [[https://github.com/ultronozm/czm-preview.el][it]].  This approach is also collaborator-friendly, since more mathematicians are familiar with TeX than with org.
+
+* Configuration
+This package requires [[https://github.com/sagemath/ob-sagemath][ob-sagemath]], [[https://github.com/sagemath/sage-shell-mode][sage-shell-mode]] and [[https://github.com/ultronozm/czm-tex-util.el][czm-tex-util.el]], so install those first.
+
+Download this repository, install using =M-x package-install-file= (or package-vc-install, straight, elpaca, ...), and add something like the following to your [[https://www.emacswiki.org/emacs/InitFile][init file]]:
+#+begin_src elisp
+(use-package symtex
+  :bind
+  (:map LaTeX-mode-map
+	("C-c v" . symtex-dwim)))
+#+end_src
+
+Modify suitably, replacing =C-c v= with your preferred bind.
+
+I use [[https://github.com/progfolio/elpaca][elpaca]], with the following in my init file:
+#+begin_src elisp
+(use-package symtex
+  :elpaca (:host github
+                 :repo "ultronozm/symtex.el"
+                 :files ("*.el" "*.py")
+                 :depth nil)
+  :after latex
+  :bind
+  (:map global-map
+        ("C-c V" . symtex-process))
+  (:map LaTeX-mode-map
+	("C-c v" . symtex-dwim)))
+#+end_src
+
+* Issues
+- If you haven't already launched a =*Sage*= buffer and executed some commands in that, then =symtex-dwim= typically doesn't work correctly the first time it has been called, during to some deprecation warnings.  Sorry!  Just try it again and it should work from that point forward.
+
+- This package relies on converting objects back and forth between SymPy and Sage, which introduces issues now and then.  The SAGE member functions ~._sage()~ and ~._sympy()~ can be useful to play around with; see for instance the horrendous contents of the customization variable =symtex-sympy2latex-expr=.  
+
+* Credits
+This package uses Python code adapted from [[https://github.com/OrangeX4/latex2sympy][latex2sympy2]].

@@ -2,7 +2,7 @@
 #+author: Paul Nelson
 
 * Overview
-Sometimes we need to perform computations (symbolic, numerical, ...) involving mathematical expression that we have already typeset in TeX.  This package provides commands that simplify doing.
+Sometimes we need to perform computations (symbolic, numerical, ...) involving mathematical expression that we have already typeset in TeX.  This package provides commands that simplify doing.  It is essentially an Emacs frontend for [[https://github.com/OrangeX4/latex2sympy][latex2sympy]], adapted to work with [[https://www.sagemath.org/][SAGE]], with some bug fixes and convenience features thrown in.
 
 The main entry point is the command =symtex-dwim=, bound to =C-c v= by default.  This command evaluates a SAGE expression (in a SAGE session, which we can access separately via the =*Sage*= buffer) and stores the result of that evaluation, converted to TeX, in the [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Kill-Ring.html][kill-ring]], from where we are free to [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Yanking.html][yank]] it into our TeX buffer.
 

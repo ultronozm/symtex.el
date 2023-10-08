@@ -111,7 +111,8 @@ result is saved in `symtex-temp-dir'."
       (insert (format symtex-sage-src-block sage-code))
       (goto-char (point-min))
       (setq result
-	    (let ((python-indent-guess-indent-offset-verbose nil))
+	    (let ((python-indent-guess-indent-offset-verbose nil)
+                  (inhibit-message t))
 	      (org-babel-execute-src-block)))
       (setq contents (buffer-substring-no-properties (point-min) (point-max))))
     (with-current-buffer org-buffer

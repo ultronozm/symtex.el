@@ -14,7 +14,7 @@ If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html
 
 (The live previewing is via the package [[https://github.com/ultronozm/czm-preview.el][czm-preview]].)
 
-When the region is inactive, the command =symtex-dwim= behaves similarly, except that =expr= is not set to anything before the SAGE expression that we provide is evaluated.
+When the region is inactive, the command =symtex-dwim= behaves similarly, except that =expr= is not set to anything before our SAGE expression is evaluated.
 
 If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html_node/elisp/The-Region.html][active region]] and a [[https://www.emacswiki.org/emacs/PrefixArgument][prefix argument]] (=C-u C-c v= by default), then we evaluate a "default" expression, which by default is essentially =expr.expand()= (see the customization variable =symtex-expand-expression=).  Here's an example where we use this feature to multiply some matrices.
 
@@ -55,9 +55,9 @@ I use [[https://github.com/progfolio/elpaca][elpaca]], with the following in my 
 #+end_src
 
 * Issues
-- If you haven't already launched a =*Sage*= buffer and executed some commands in that, then =symtex-dwim= typically doesn't work correctly the first time it has been called, during to some deprecation warnings.  Sorry!  Just try it again and it should work from that point forward.
+- If you haven't already launched a =*Sage*= buffer and executed some commands in that, then =symtex-dwim= typically doesn't work correctly the first time it has been called, due to some deprecation warnings.  Sorry!  Just try it again and it should work from then on.
 
-- This package relies on converting objects back and forth between SymPy and Sage, which introduces issues now and then.  The SAGE member functions ~._sage()~ and ~._sympy()~ can be useful to play around with; see for instance the horrendous contents of the customization variable =symtex-sympy2latex-expr=.  
+- This package relies on converting objects back and forth between SymPy and Sage, which introduces issues now and then.  It can help to play around with the SAGE member functions ~._sage_()~ and ~._sympy_()~; see for instance the horrendous contents of the customization variable =symtex-sympy2latex-expr=.  
 
 * Credits
 This package uses Python code adapted from [[https://github.com/OrangeX4/latex2sympy][latex2sympy2]].

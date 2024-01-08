@@ -5,7 +5,7 @@
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
 ;; Version: 0.0
 ;; URL: https://github.com/ultronozm/symtex.el
-;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.0") (sage-shell-mode "0.3") (ob-sagemath "0.4"))
+;; Package-Requires: ((emacs "28.1") (czm-tex-util "0.0") (sage-shell-mode "0.3") (ob-sagemath "0.4"))
 ;; Keywords: tex, tools, convenience
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -52,8 +52,8 @@
        (buffer-file-name)))
   "Directory containing this file.")
 
-(defconst symtex--latex2sympy-import-statement
-  (format "load(\"%s\")" (expand-file-name "latex2sympy.py" symtex--base-dir))
+(defconst symtex--backend-import-statement
+  (format "load(\"%s\")" (expand-file-name "symtex.py" symtex--base-dir))
   ;; "load(\"~/doit/sage/cool_latex_parse.py\")"
   "Path to the parsing library file.")
 
@@ -63,20 +63,20 @@
   :type 'string
   :group 'symtex)
 
-(defcustom symtex-latex2sympy-expr
-  "latex2sympy(expr_str)"
-  "Name of the function to use for parsing LaTeX."
+(defcustom symtex-parse-latex-expr
+  "symtex_parse_latex(expr_str)"
+  "Expression used for parsing LaTeX."
   :type 'string
   :group 'symtex)
 
-(defcustom symtex-sympy2latex-expr
+(defcustom symtex-get-latex-expr
   ;; "latex(result_expr._sage_())"
   (mapconcat #'identity
 	     (list
 	      "try:"
-	      "    result_str = sympy2latex(result_expr._sage_()._sympy_())"
+	      "    result_str = symtex_get_latex(result_expr._sage_()._sympy_())"
 	      "except Exception as e:"
-	      "    result_str = sympy2latex(result_expr)")
+	      "    result_str = symtex_get_latex(result_expr)")
 	     "\n")
   "Expression used for converting SymPy to LaTeX."
   :type 'string
@@ -103,7 +103,7 @@ Create an org-mode sage source block in a temporary buffer, call
 reference and debugging, the sage code used to produce this
 result is saved in `symtex-temp-dir'."
   (let* ((date-str (format-time-string "%Y-%m-%d"))
-         (org-file-path (expand-file-name (concat "temp-sage-" date-str ".org") symtex-temp-dir ))
+         (org-file-path (expand-file-name (concat "temp-sage-" date-str ".org") symtex-temp-dir))
          (org-buffer (find-file-noselect org-file-path))
          (timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
          result contents)
@@ -126,9 +126,8 @@ result is saved in `symtex-temp-dir'."
 (defun symtex--tidy (result)
   "Tidy the RESULT of some sage code evaluation."
   (let ((tidied-result result))
-    (setq tidied-result (substring tidied-result 1 -1))
+    (setq tidied-result (substring tidied-result 5 -1))
     (setq tidied-result (string-replace "\\\\" "\\" tidied-result))
-    (setq tidied-result (string-replace "bmatrix" "pmatrix" tidied-result))
     tidied-result))
 
 (defun symtex--evaluate-copy-result (sage-code)
@@ -144,13 +143,13 @@ result is saved in `symtex-temp-dir'."
   "Evaluate sage code OUTPUT using TeX code INPUT.
 The sage code OUTPUT is evaluated, its result converted to TeX
 and stored in the kill ring.  If INPUT is non-nil, then it is
-converted to a sage object using latex2sympy and stored in the
-sage variable `expr' prior to the evaluation of OUTPUT."
+converted to a sage object using the Python backend and stored
+in the sage variable `expr' prior to the evaluation of OUTPUT."
   (interactive "sSage expression to evaluate:")
   (let ((sage-code (mapconcat
 		     #'identity
 		     (list
-		      symtex--latex2sympy-import-statement
+		      symtex--backend-import-statement
 		      (when input
 			(format
 			 (mapconcat
@@ -164,13 +163,13 @@ sage variable `expr' prior to the evaluation of OUTPUT."
 			   ;; "    exprs.append(expr)"
 			   )
 			  "\n")
-			 input symtex-latex2sympy-expr))
+			 input symtex-parse-latex-expr))
 		      (format "result_expr = %s" output)
 		      ;; "if not result_exprs:"
 		      ;; "    result_exprs = [result_expr]"
 		      ;; "else:"
 		      ;; "    result_exprs.append(result_expr)"
-		      symtex-sympy2latex-expr
+		      symtex-get-latex-expr
 		      symtex-finale)
 		     "\n")))
     (symtex--evaluate-copy-result sage-code)))

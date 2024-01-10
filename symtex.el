@@ -52,20 +52,9 @@
        (buffer-file-name)))
   "Directory containing this file.")
 
-(defconst symtex--latex2sympy-import-statement
-  (format "load(\"%s\")" (expand-file-name "latex2sympy.py" symtex--base-dir))
-  ;; "load(\"~/doit/sage/cool_latex_parse.py\")"
-  "Path to the parsing library file.")
-
 (defcustom symtex-temp-dir
   "~/temp-sage/"
   "Directory to store temporary results."
-  :type 'string
-  :group 'symtex)
-
-(defcustom symtex-latex2sympy-expr
-  "latex2sympy(expr_str)"
-  "Name of the function to use for parsing LaTeX."
   :type 'string
   :group 'symtex)
 
@@ -73,10 +62,7 @@
   ;; "latex(result_expr._sage_())"
   (mapconcat #'identity
 	     (list
-	      "try:"
-	      "    result_str = sympy2latex(result_expr._sage_()._sympy_())"
-	      "except Exception as e:"
-	      "    result_str = sympy2latex(result_expr)")
+       "result_str = latex(result_expr._sage_())")
 	     "\n")
   "Expression used for converting SymPy to LaTeX."
   :type 'string
@@ -139,6 +125,30 @@ result is saved in `symtex-temp-dir'."
     (kill-new tidied-result)
     (message "Result saved to kill-ring: %s" tidied-result)))
 
+(defun symtex--format-list (list)
+  (mapconcat (lambda (item)
+               (cond ((listp item)
+                      (symtex--format-list item))
+                     ((stringp item)
+                      (cond
+                       ((equal item "^")
+                        "**")
+                       ((equal item "matrix(")
+                        "Matrix(")
+                      (t
+                       item)))))
+             list))
+
+(defun symtex--parse-latex (latex-expr)
+  "Parse LATEX-EXPR."
+  (let* ((parsed
+          (let ((calc-language 'latex))
+            (math-read-big-expr latex-expr)))
+         (composed
+          (let ((calc-language 'maple))
+            (math-compose-expr parsed 0))))
+    (symtex--format-list composed)))
+
 ;;;###autoload
 (defun symtex-process (output &optional input)
   "Evaluate sage code OUTPUT using TeX code INPUT.
@@ -147,32 +157,27 @@ and stored in the kill ring.  If INPUT is non-nil, then it is
 converted to a sage object using latex2sympy and stored in the
 sage variable `expr' prior to the evaluation of OUTPUT."
   (interactive "sSage expression to evaluate:")
-  (let ((sage-code (mapconcat
-		     #'identity
-		     (list
-		      symtex--latex2sympy-import-statement
-		      (when input
-			(format
-			 (mapconcat
-			  #'identity
-			  (list
-			   "expr_str = r'''{%s}'''"
-			   "expr = %s"
-			   ;; "if not exprs:"
-			   ;; "    exprs = [expr]"
-			   ;; "else:"
-			   ;; "    exprs.append(expr)"
-			   )
-			  "\n")
-			 input symtex-latex2sympy-expr))
-		      (format "result_expr = %s" output)
-		      ;; "if not result_exprs:"
-		      ;; "    result_exprs = [result_expr]"
-		      ;; "else:"
-		      ;; "    result_exprs.append(result_expr)"
-		      symtex-sympy2latex-expr
-		      symtex-finale)
-		     "\n")))
+  (let* ((sage-code (mapconcat
+		                   #'identity
+		                   (list
+		                    (when input
+                        (format
+			                      (mapconcat
+			                       #'identity
+			                       (list
+			                        "expr_str = r'''%s'''"
+			                        "expr = sympy.parse_expr(expr_str)"
+			                        )
+			                       "\n")
+			                      (symtex--parse-latex input)))
+		                    (format "result_expr = %s" output)
+		                    ;; "if not result_exprs:"
+		                    ;; "    result_exprs = [result_expr]"
+		                    ;; "else:"
+		                    ;; "    result_exprs.append(result_expr)"
+		                    symtex-sympy2latex-expr
+		                    symtex-finale)
+		                   "\n")))
     (symtex--evaluate-copy-result sage-code)))
 
 (defun symtex--read-evaluate-region (beg end &optional output)

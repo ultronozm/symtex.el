@@ -5,7 +5,7 @@
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
 ;; Version: 0.0
 ;; URL: https://github.com/ultronozm/symtex.el
-;; Package-Requires: ((emacs "26.1") (czm-tex-util "0.0") (sage-shell-mode "0.3") (ob-sagemath "0.4"))
+;; Package-Requires: ((emacs "28.1") (czm-tex-util "0.0") (sage-shell-mode "0.3") (ob-sagemath "0.4"))
 ;; Keywords: tex, tools, convenience
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -34,6 +34,9 @@
 (require 'czm-tex-util)
 (require 'python)
 (require 'ob-sagemath)
+(require 'calc)
+(require 'calc-ext)
+(require 'calccomp)
 
 (defgroup symtex nil
   "Symtex: A package for parsing and evaluating LaTeX math expressions with SageMath."
@@ -42,7 +45,7 @@
 
 (defcustom symtex-expand-expression
   "expr.expand()*2/2"
-  "sage expression for expansion."
+  "Sage expression for expansion."
   :type 'string
   :group 'symtex)
 
@@ -84,7 +87,7 @@ is that you can customize this to do some post-processing."
 
 (defun symtex--evaluate (sage-code)
   "Evaluate SAGE-CODE.
-Create an org-mode sage source block in a temporary buffer, call
+Create an `org-mode' sage source block in a temporary buffer, call
 `org-babel-execute-src-block', and return the result.  For future
 reference and debugging, the sage code used to produce this
 result is saved in `symtex-temp-dir'."
@@ -121,8 +124,7 @@ result is saved in `symtex-temp-dir'."
     (goto-char (point-min))
     (while (re-search-forward "\\\\end{array}\\\\right)" nil t)
       (replace-match "\\\\end{pmatrix}"))
-    (buffer-substring-no-properties (point-min) (point-max))
-    ))
+    (buffer-substring-no-properties (point-min) (point-max))))
 
 (defun symtex--evaluate-copy-result (sage-code)
   "Evaluate SAGE-CODE.  Save the (tidied) result in the kill ring."
@@ -133,6 +135,9 @@ result is saved in `symtex-temp-dir'."
     (message "Result saved to kill-ring: %s" tidied-result)))
 
 (defun symtex--format-list (list)
+  "Format LIST for use in a Sage source block.
+LIST will be output from Emacs calc in maple format, which seems
+to work well enough."
   (mapconcat (lambda (item)
                (cond ((listp item)
                       (symtex--format-list item))
@@ -146,13 +151,15 @@ result is saved in `symtex-temp-dir'."
                        item)))))
              list))
 
-
+(defun symtex--delete-trailing-newlines-of-pmatrix (latex-expr)
+  "Delete trailing newlines of pmatrix in LATEX-EXPR."
+  (let ((pattern (rx "\\\\" (any "\n" space) (group "\\end{pmatrix}"))))
+    (replace-regexp-in-string pattern "\\1" latex-expr)))
 
 (defun symtex--parse-latex (latex-expr)
   "Parse LATEX-EXPR."
   (let* ((preprocessed
-          (let ((pattern (rx "\\\\" (any "\n" space) (group "\\end{pmatrix}"))))
-            (replace-regexp-in-string pattern "\\1" latex-expr)))
+          (symtex--delete-trailing-newlines-of-pmatrix latex-expr))
          (parsed
           (let ((calc-language 'latex))
             (math-read-big-expr preprocessed)))
@@ -178,8 +185,7 @@ sage variable `expr' prior to the evaluation of OUTPUT."
 			                       #'identity
 			                       (list
 			                        "expr_str = r'''%s'''"
-			                        "expr = parse_expr(expr_str)"
-			                        )
+			                        "expr = parse_expr(expr_str)")
 			                       "\n")
 			                      (symtex--parse-latex input)))
 		                    (format "result_expr = %s" output)
@@ -255,6 +261,8 @@ variable `symtex-expand-expression'."
 
 ;; very slight tweaking of Emacs Calc's `math-compose-expr'
 (defun symtex--math-compose-expr (a prec &optional div)
+  "Compose a LaTeX expression for A.
+PREC and DIV are like in the original function."
   (let ((calc-multiplication-has-precedence t)
         (math-compose-level (1+ math-compose-level))
         (math-expr-opers (math-expr-ops))

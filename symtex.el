@@ -111,11 +111,18 @@ result is saved in `symtex-temp-dir'."
 
 (defun symtex--tidy (result)
   "Tidy the RESULT of some sage code evaluation."
-  (let ((tidied-result result))
-    (setq tidied-result (substring tidied-result 1 -1))
-    (setq tidied-result (string-replace "\\\\" "\\" tidied-result))
-    (setq tidied-result (string-replace "bmatrix" "pmatrix" tidied-result))
-    tidied-result))
+  (with-temp-buffer
+    (insert result)
+    (goto-char (point-max))
+    (goto-char (point-min))
+    (goto-char (point-min))
+    (while (re-search-forward "\\\\left(\\\\begin{array}{\\(r+\\)}" nil t)
+      (replace-match "\\\\begin{pmatrix}"))
+    (goto-char (point-min))
+    (while (re-search-forward "\\\\end{array}\\\\right)" nil t)
+      (replace-match "\\\\end{pmatrix}"))
+    (buffer-substring-no-properties (point-min) (point-max))
+    ))
 
 (defun symtex--evaluate-copy-result (sage-code)
   "Evaluate SAGE-CODE.  Save the (tidied) result in the kill ring."

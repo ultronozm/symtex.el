@@ -151,15 +151,26 @@ to work well enough."
                        item)))))
              list))
 
-(defun symtex--delete-trailing-newlines-of-pmatrix (latex-expr)
-  "Delete trailing newlines of pmatrix in LATEX-EXPR."
-  (let ((pattern (rx "\\\\" (any "\n" space) (group "\\end{pmatrix}"))))
-    (replace-regexp-in-string pattern "\\1" latex-expr)))
+(defun symtex--preprocess-for-calc (latex-expr)
+  "Preprocessing step to get around some calc parser oddities.
+It doesn't like newlines at the end of pmatrix environments, and
+sometimnes it doesn't like having extra spaces near operators
+inside pmatrix environments.  Haven't debugged
+`math-read-expr-level' carefully, but the following hack seems to
+take care of things."
+  (dolist (pattern
+           (list (rx "\\\\" (1+ (any "\n" space))
+                     (group "\\end{pmatrix}"))
+                 (rx (1+ space)
+                     (group (any "+" "-" "*" "/" "^"))
+                     (1+ space))))
+    (setq latex-expr  (replace-regexp-in-string pattern "\\1" latex-expr)))
+  latex-expr)
 
 (defun symtex--parse-latex (latex-expr)
   "Parse LATEX-EXPR."
   (let* ((preprocessed
-          (symtex--delete-trailing-newlines-of-pmatrix latex-expr))
+          (symtex--preprocess-for-calc latex-expr))
          (parsed
           (let ((calc-language 'latex))
             (math-read-big-expr preprocessed)))
@@ -179,13 +190,14 @@ sage variable `expr' prior to the evaluation of OUTPUT."
   (let* ((sage-code (mapconcat
 		                   #'identity
 		                   (list
+                      "import sympy"
 		                    (when input
                         (format
 			                      (mapconcat
 			                       #'identity
 			                       (list
 			                        "expr_str = r'''%s'''"
-			                        "expr = parse_expr(expr_str)")
+			                        "expr = sympy.parse_expr(expr_str)")
 			                       "\n")
 			                      (symtex--parse-latex input)))
 		                    (format "result_expr = %s" output)

@@ -146,11 +146,16 @@ result is saved in `symtex-temp-dir'."
                        item)))))
              list))
 
+
+
 (defun symtex--parse-latex (latex-expr)
   "Parse LATEX-EXPR."
-  (let* ((parsed
+  (let* ((preprocessed
+          (let ((pattern (rx "\\\\" (any "\n" space) (group "\\end{pmatrix}"))))
+            (replace-regexp-in-string pattern "\\1" latex-expr)))
+         (parsed
           (let ((calc-language 'latex))
-            (math-read-big-expr latex-expr)))
+            (math-read-big-expr preprocessed)))
          (composed
           (let ((calc-language 'maple))
             (symtex--math-compose-expr parsed 0))))

@@ -164,18 +164,34 @@ take care of things."
                  (rx (1+ space)
                      (group (any "+" "-" "*" "/" "^"))
                      (1+ space))))
-    (setq latex-expr  (replace-regexp-in-string pattern "\\1" latex-expr)))
+    (setq latex-expr (replace-regexp-in-string pattern "\\1" latex-expr)))
   latex-expr)
+
+(defun symtex--copy-properties (from-symbol to-symbol)
+  "Copy all properties from FROM-SYMBOL to TO-SYMBOL."
+  (let ((props (symbol-plist from-symbol)))
+    (while props
+      (put to-symbol (car props) (cadr props))
+      (setq props (cddr props)))))
 
 (defun symtex--parse-latex (latex-expr)
   "Parse LATEX-EXPR."
+  (symtex--copy-properties 'maple 'symtex-calc-lang)
+  (put 'symtex-calc-lang 'math-compose-subscr
+       (lambda (a)
+         (list 'horiz
+               (math-compose-expr (nth 1 a) 1000)
+               "_"
+               (math-compose-expr
+                (calc-normalize (list '- (nth 2 a) 0)) 0)
+               "")))  
   (let* ((preprocessed
           (symtex--preprocess-for-calc latex-expr))
          (parsed
           (let ((calc-language 'latex))
             (math-read-big-expr preprocessed)))
          (composed
-          (let ((calc-language 'maple))
+          (let ((calc-language 'symtex-calc-lang))
             (symtex--math-compose-expr parsed 0))))
     (symtex--format-list composed)))
 

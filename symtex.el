@@ -64,7 +64,17 @@
       (save-buffer))))
 
 (defcustom symtex-spec
-  '(:preprocess symtex--parse-latex
+  '(:preprocess symtex--parse-latex-for-sage
+                :block-format "#+begin_src sage :results silent\n%s\n#+end_src"
+                :header nil
+                :input "expr = %s"
+                :op "result_expr = %s"
+                :output "result_str = latex(result_expr)
+result_str")
+  "Specification for how to operate on TeX expressions.")
+
+(defcustom symtex-spec-old
+  '(:preprocess symtex--parse-latex-for-sympy
                 :block-format "#+begin_src sage :results silent\n%s\n#+end_src"
                 :header "import sympy"
                 :input "expr_str = r'''%s'''
@@ -104,31 +114,24 @@ result_str")
                                     (point-max))))
 
 ;;;###autoload
-(defun symtex-process (op &optional input spec logger)
+(defun symtex-process (op &optional input)
   "Evaluate code OP using TeX code INPUT.
 If INPUT is non-nil, then it is parsed, converted to a sage
 object, and stored in the sage variable `expr'.  The code OP is
-evaluated.  Its result is stored in the kill-ring.
-
-The optional argument SPEC customizes the underlying source
-block (default: `symtex-spec').
-
-The optional argument LOGGER customizes the logging
-mechanism (default: `symtex--log')."
+evaluated.  Its result is stored in the kill-ring."
   (interactive "sExpression to evaluate:")
-  (unless spec (setq spec symtex-spec))
-  (let* ((block (format (plist-get spec :block-format)
-                        (symtex--code op input spec)))
-         (result (with-temp-buffer
-                   (insert block)
-                   (goto-char (point-min))
-                   (let ((python-indent-guess-indent-offset-verbose nil)
-                         (inhibit-message t))
-                     (symtex--tidy
-                      (org-babel-execute-src-block))))))
-    (funcall logger block)
-    (kill-new result)
-    (message "Result saved to kill-ring: %s" result)))
+  (let ((block (format (plist-get symtex-spec :block-format)
+                       (symtex--code op input symtex-spec))))
+    (symtex--log block)
+    (let ((result (with-temp-buffer
+                    (insert block)
+                    (goto-char (point-min))
+                    (let ((python-indent-guess-indent-offset-verbose nil)
+                          (inhibit-message t))
+                      (symtex--tidy
+                       (org-babel-execute-src-block))))))
+      (kill-new result)
+      (message "Result saved to kill-ring: %s" result))))
 
 (defun symtex--read-evaluate-region (beg end &optional op)
   "Evaluate SAGE expression involving TeX region (BEG . END).
@@ -191,14 +194,14 @@ variable `symtex-expand-expression'."
     (call-interactively #'symtex-process)))
 
 
-(defun symtex--postprocess-from-calc (list)
+(defun symtex--postprocess-from-calc-for-sympy (list)
   "Format LIST for use in a Sage source block.
 LIST will be output from Emacs calc in maple format, which seems
 to work well enough."
   (if (listp list)
       (mapconcat (lambda (item)
                    (cond ((listp item)
-                          (symtex--postprocess-from-calc item))
+                          (symtex--postprocess-from-calc-for-sympy item))
                          ((stringp item)
                           (cond
                            ((equal item "^")
@@ -233,7 +236,58 @@ take care of things."
       (put to-symbol (car props) (cadr props))
       (setq props (cddr props)))))
 
-(defun symtex--parse-latex (latex-expr)
+(defun symtex--parse-latex-for-maxima (latex-expr)
+  "Parse LATEX-EXPR."
+  (let* ((preprocessed latex-expr)
+         ;; (preprocessed (symtex--preprocess-for-calc latex-expr))
+         (parsed (let ((calc-language 'latex))
+                   (math-read-big-expr preprocessed)))
+         (composed (let ((calc-language 'maxima))
+                     (symtex--math-compose-expr parsed 0)))
+         (postprocessor
+          (lambda (item self)
+            (cond ((listp item)
+                   (mapconcat (lambda (subitem)
+                                (funcall self subitem self))
+                              item))
+                  ((stringp item)
+                   item))))
+         (postprocessed
+          (funcall postprocessor composed postprocessor)))
+    postprocessed))
+
+
+(defmacro symtex--with-calc-language (lang &rest body)
+  "Execute the forms in BODY with `calc-language` set to LANG.
+The value of `calc-language` is restored after BODY has been processed."
+  `(let ((old-lang calc-language))
+     (unwind-protect
+         (progn
+           (calc-set-language ,lang)
+           ,@body)
+       (calc-set-language old-lang))))
+
+(defun symtex--parse-latex-for-sage (latex-expr)
+  "Parse LATEX-EXPR."
+  (let* ((preprocessed latex-expr)
+         ;; (preprocessed (symtex--preprocess-for-calc latex-expr))
+         (parsed (symtex--with-calc-language 'latex
+                                             (math-read-expr preprocessed)))
+         (composed (symtex--with-calc-language 'sage
+                                               (math-compose-expr parsed 0)))
+         (postprocessor
+          (lambda (item self)
+            (cond ((listp item)
+                   (mapconcat (lambda (subitem)
+                                (funcall self subitem self))
+                              item))
+                  ((stringp item)
+                   item))))
+         (postprocessed
+          (funcall postprocessor composed postprocessor)))
+    postprocessed))
+
+(defun symtex--parse-latex-for-sympy (latex-expr)
   "Parse LATEX-EXPR."
   (symtex--copy-properties 'maple 'symtex-calc-lang)
   (put 'symtex-calc-lang 'math-compose-subscr
@@ -247,12 +301,12 @@ take care of things."
   (let* ((preprocessed
           (symtex--preprocess-for-calc latex-expr))
          (parsed
-          (let ((calc-language 'latex))
-            (math-read-big-expr preprocessed)))
+          (symtex--with-calc-language 'latex
+                                      (math-read-big-expr preprocessed)))
          (composed
-          (let ((calc-language 'symtex-calc-lang))
-            (symtex--math-compose-expr parsed 0))))
-    (symtex--postprocess-from-calc composed)))
+          (symtex--with-calc-language 'sage
+                                      (math-compose-expr parsed 0))))
+    (symtex--postprocess-from-calc-for-sympy composed)))
 
 (defvar math-comp-just)
 (defvar math-comp-comma-spc)
@@ -261,7 +315,107 @@ take care of things."
 (defvar math-comp-right-bracket)
 (defvar math-comp-comma)
 
-;; very slight tweaking of Emacs Calc's `math-compose-expr'
+(defvar calc-alg-exp)
+(defvar calc-buffer)
+(defvar calc-digit-value)
+(defvar math-exp-pos)
+(defvar math-exp-str)
+(defvar math-exp-old-pos)
+(defvar math-exp-token)
+(defvar math-exp-keep-spaces)
+(defvar math-expr-data)
+(defvar calc-lang-slash-idiv)
+(defvar calc-lang-allow-underscores)
+(defvar calc-lang-allow-percentsigns)
+(defvar math-comp-left-bracket)
+(defvar math-comp-right-bracket)
+(defvar math-comp-comma)
+(defvar math-comp-vector-prec)
+(defvar math-comp-just)
+(defvar math-comp-comma-spc)
+(defvar math-comp-vector-prec)
+(defvar math-comp-left-bracket)
+(defvar math-comp-right-bracket)
+(defvar math-comp-comma)
+(defvar math-exp-str) ;; Dyn scoped
+
+(defun symtex--math-read-expr-level (exp-prec &optional exp-term)
+  (let* ((math-expr-opers (math-expr-ops))
+         (x (math-read-factor))
+         (first t)
+         op op2)
+    (while (and (or (and calc-user-parse-table
+			                      (setq op (calc-check-user-syntax x exp-prec))
+			                      (setq x op
+			                            op '("2x" ident 999999 -1)))
+		                  (and (setq op (assoc math-expr-data math-expr-opers))
+			                      (/= (nth 2 op) -1)
+			                      (or (and (setq op2 (assoc
+					                                        math-expr-data
+					                                        (cdr (memq op math-expr-opers))))
+				                              (eq (= (nth 3 op) -1)
+				                                  (/= (nth 3 op2) -1))
+				                              (eq (= (nth 3 op2) -1)
+				                                  (not (math-factor-after)))
+				                              (setq op op2))
+			                          t))
+		                  (and
+                     (or (eq (nth 2 op) -1)
+			                      (memq math-exp-token '(symbol number dollar hash))
+                         (and (eq calc-language 'latex)
+                              (eq math-exp-token 'space))
+			                      (equal math-expr-data "(")
+			                      (and (equal math-expr-data "[")
+				                          (not (equal
+                                    (get calc-language
+                                         'math-function-open) "["))
+				                          (not (and math-exp-keep-spaces
+					                                   (eq (car-safe x) 'vec)))))
+			                  (or (not (setq op (assoc math-expr-data math-expr-opers)))
+			                      (/= (nth 2 op) -1))
+			                  (or (not calc-user-parse-table)
+			                      (not (eq math-exp-token 'symbol))
+			                      (let ((p calc-user-parse-table))
+			                        (while (and p
+					                                  (or (not (integerp
+						                                           (car (car (car p)))))
+					                                      (not (equal
+						                                           (nth 1 (car (car p)))
+						                                           math-expr-data))))
+				                         (setq p (cdr p)))
+			                        (not p)))
+			                  (setq op (assoc "2x" math-expr-opers))))
+		              (not (and exp-term (equal math-expr-data exp-term)))
+		              (>= (nth 2 op) exp-prec))
+      (if (not (equal (car op) "2x"))
+	         (math-read-token))
+      (and (memq (nth 1 op) '(sdev mod))
+	          (require 'calc-ext))
+      (setq x (cond ((consp (nth 1 op))
+		                   (funcall (car (nth 1 op)) x op))
+		                  ((eq (nth 3 op) -1)
+		                   (if (eq (nth 1 op) 'ident)
+			                      x
+		                     (if (eq (nth 1 op) 'closing)
+			                        (if (eq (nth 2 op) exp-prec)
+			                            (progn
+				                             (setq exp-prec 1000)
+				                             x)
+			                          (throw 'syntax "Mismatched delimiters"))
+			                      (list (nth 1 op) x))))
+		                  ((and (not first)
+			                       (memq (nth 1 op) math-alg-inequalities)
+			                       (memq (car-safe x) math-alg-inequalities))
+		                   (require 'calc-ext)
+		                   (math-composite-inequalities x op))
+		                  (t (list (nth 1 op)
+			                          x
+			                          (math-read-expr-level (nth 3 op) exp-term))))
+	           first nil))
+    x))
+
+(advice-add 'math-read-expr-level :override #'symtex--math-read-expr-level)
+
 (defun symtex--math-compose-expr (a prec &optional div)
   "Compose a LaTeX expression for A.
 PREC and DIV are like in the original function."
@@ -860,7 +1014,7 @@ PREC and DIV are like in the original function."
 					                                    (list 'set setlev 1)
 					                                    lhs
 					                                    (list 'break math-compose-level)
-                                         (if (memq calc-language '(maple symtex-calc-lang))
+                                         (if (memq calc-language '(maple sage symtex-calc-lang))
                                              "*"
 					                                      " ")
 					                                    rhs))))
@@ -1011,6 +1165,51 @@ PREC and DIV are like in the original function."
                                 args))
                        (list 'horiz func calc-function-open
 		                           args calc-function-close))))))))))))
+
+(advice-add 'math-compose-expr :override #'symtex--math-compose-expr)
+
+(defun symtex--math-compose-subscr (a)
+  (if (eq (car (nth 1 a))
+          'var)
+      (let* ((var (cadr (nth 1 a)))
+             (sub (nth 2 a))
+             (var-str
+              (concat
+               (symbol-name var)
+               "_"
+               (number-to-string sub))))
+        (list 'horiz
+              (format "var(\"%s\")"
+                      var-str)))
+    (list 'horiz
+
+          (math-compose-expr (nth 1 a)
+                             1000)
+          "_"
+          (math-compose-expr (nth 2 a)
+                             0)
+          "")))
+
+(put 'sage 'math-compose-subscr #'symtex--math-compose-subscr)
+
+(defun symtex--math-matrix-formatter (a)
+  (list 'horiz
+        "matrix("
+        math-comp-left-bracket
+        (math-compose-vector (cdr a)
+                             (concat math-comp-comma " ")
+                             math-comp-vector-prec)
+        math-comp-right-bracket
+        ")"))
+
+(put 'sage 'math-matrix-formatter #'symtex--math-matrix-formatter)
+
+(defun symtex--math-compose-var (a _prec)
+  (let ((sn (nth 1 a)))
+    (format "var(\"%s\")"
+            sn)))
+
+(put 'sage 'math-var-formatter #'symtex--math-compose-var)
 
 
 (provide 'symtex)

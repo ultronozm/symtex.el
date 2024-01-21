@@ -92,7 +92,8 @@ Create an `org-mode' sage source block in a temporary buffer, call
 reference and debugging, the sage code used to produce this
 result is saved in `symtex-temp-dir'."
   (let* ((date-str (format-time-string "%Y-%m-%d"))
-         (org-file-path (expand-file-name (concat "temp-sage-" date-str ".org") symtex-temp-dir ))
+         (org-file-path (expand-file-name (concat "temp-sage-" date-str ".org")
+                                          symtex-temp-dir ))
          (org-buffer (find-file-noselect org-file-path))
          (timestamp (format-time-string "%Y-%m-%d %H:%M:%S"))
          result contents)
@@ -100,10 +101,11 @@ result is saved in `symtex-temp-dir'."
       (insert (format symtex-sage-src-block sage-code))
       (goto-char (point-min))
       (setq result
-	    (let ((python-indent-guess-indent-offset-verbose nil)
+	           (let ((python-indent-guess-indent-offset-verbose nil)
                   (inhibit-message t))
-	      (org-babel-execute-src-block)))
-      (setq contents (buffer-substring-no-properties (point-min) (point-max))))
+	             (org-babel-execute-src-block)))
+      (setq contents (buffer-substring-no-properties (point-min)
+                                                     (point-max))))
     (with-current-buffer org-buffer
       (goto-char (point-max))
       (org-insert-heading t nil t)
@@ -124,7 +126,8 @@ result is saved in `symtex-temp-dir'."
     (goto-char (point-min))
     (while (re-search-forward "\\\\end{array}\\\\right)" nil t)
       (replace-match "\\\\end{pmatrix}"))
-    (buffer-substring-no-properties (point-min) (point-max))))
+    (buffer-substring-no-properties (point-min)
+                                    (point-max))))
 
 (defun symtex--evaluate-copy-result (sage-code)
   "Evaluate SAGE-CODE.  Save the (tidied) result in the kill ring."

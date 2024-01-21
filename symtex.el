@@ -73,17 +73,6 @@
 result_str")
   "Specification for how to operate on TeX expressions.")
 
-(defcustom symtex-spec-old
-  '(:preprocess symtex--parse-latex-for-sympy
-                :block-format "#+begin_src sage :results silent\n%s\n#+end_src"
-                :header "import sympy"
-                :input "expr_str = r'''%s'''
-expr = sympy.parse_expr(expr_str)"
-                :op "result_expr = %s"
-                :output "result_str = latex(result_expr._sage_())
-result_str")
-  "Specification for how to operate on TeX expressions.")
-
 (defun symtex--code (op input spec)
   (let ((preprocess (plist-get spec :preprocess))
         (header (plist-get spec :header))
@@ -236,36 +225,17 @@ take care of things."
       (put to-symbol (car props) (cadr props))
       (setq props (cddr props)))))
 
-(defun symtex--parse-latex-for-maxima (latex-expr)
-  "Parse LATEX-EXPR."
-  (let* ((preprocessed latex-expr)
-         ;; (preprocessed (symtex--preprocess-for-calc latex-expr))
-         (parsed (let ((calc-language 'latex))
-                   (math-read-big-expr preprocessed)))
-         (composed (let ((calc-language 'maxima))
-                     (symtex--math-compose-expr parsed 0)))
-         (postprocessor
-          (lambda (item self)
-            (cond ((listp item)
-                   (mapconcat (lambda (subitem)
-                                (funcall self subitem self))
-                              item))
-                  ((stringp item)
-                   item))))
-         (postprocessed
-          (funcall postprocessor composed postprocessor)))
-    postprocessed))
-
-
 (defmacro symtex--with-calc-language (lang &rest body)
   "Execute the forms in BODY with `calc-language` set to LANG.
 The value of `calc-language` is restored after BODY has been processed."
   `(let ((old-lang calc-language))
      (unwind-protect
          (progn
+           (calc-create-buffer)
            (calc-set-language ,lang)
            ,@body)
-       (calc-set-language old-lang))))
+       (when old-lang
+         (calc-set-language old-lang)))))
 
 (defun symtex--parse-latex-for-sage (latex-expr)
   "Parse LATEX-EXPR."
@@ -287,26 +257,7 @@ The value of `calc-language` is restored after BODY has been processed."
           (funcall postprocessor composed postprocessor)))
     postprocessed))
 
-(defun symtex--parse-latex-for-sympy (latex-expr)
-  "Parse LATEX-EXPR."
-  (symtex--copy-properties 'maple 'symtex-calc-lang)
-  (put 'symtex-calc-lang 'math-compose-subscr
-       (lambda (a)
-         (list 'horiz
-               (math-compose-expr (nth 1 a) 1000)
-               "_"
-               (math-compose-expr
-                (calc-normalize (list '- (nth 2 a) 0)) 0)
-               "")))  
-  (let* ((preprocessed
-          (symtex--preprocess-for-calc latex-expr))
-         (parsed
-          (symtex--with-calc-language 'latex
-                                      (math-read-big-expr preprocessed)))
-         (composed
-          (symtex--with-calc-language 'sage
-                                      (math-compose-expr parsed 0))))
-    (symtex--postprocess-from-calc-for-sympy composed)))
+;; everything from here on is a mild tweaking of stuff from Emacs calc
 
 (defvar math-comp-just)
 (defvar math-comp-comma-spc)
@@ -1014,7 +965,7 @@ PREC and DIV are like in the original function."
 					                                    (list 'set setlev 1)
 					                                    lhs
 					                                    (list 'break math-compose-level)
-                                         (if (memq calc-language '(maple sage symtex-calc-lang))
+                                         (if (memq calc-language '(maple sage))
                                              "*"
 					                                      " ")
 					                                    rhs))))

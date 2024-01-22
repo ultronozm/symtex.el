@@ -218,20 +218,15 @@ take care of things."
     (setq latex-expr (replace-regexp-in-string pattern "\\1" latex-expr)))
   latex-expr)
 
-(defun symtex--copy-properties (from-symbol to-symbol)
-  "Copy all properties from FROM-SYMBOL to TO-SYMBOL."
-  (let ((props (symbol-plist from-symbol)))
-    (while props
-      (put to-symbol (car props) (cadr props))
-      (setq props (cddr props)))))
-
 (defmacro symtex--with-calc-language (lang &rest body)
   "Execute the forms in BODY with `calc-language` set to LANG.
 The value of `calc-language` is restored after BODY has been processed."
   `(let ((old-lang calc-language))
      (unwind-protect
          (progn
-           (calc-create-buffer)
+           (calc-create-buffer) ; this only needs to be called once,
+                                ; but couldn't think of a more robust
+                                ; place to put it
            (calc-set-language ,lang)
            ,@body)
        (when old-lang
@@ -239,8 +234,7 @@ The value of `calc-language` is restored after BODY has been processed."
 
 (defun symtex--parse-latex-for-sage (latex-expr)
   "Parse LATEX-EXPR."
-  (let* ((preprocessed latex-expr)
-         ;; (preprocessed (symtex--preprocess-for-calc latex-expr))
+  (let* ((preprocessed (symtex--preprocess-for-calc latex-expr))
          (parsed (symtex--with-calc-language 'latex
                                              (math-read-expr preprocessed)))
          (composed (symtex--with-calc-language 'sage

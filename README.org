@@ -2,11 +2,9 @@
 #+author: Paul Nelson
 
 * Overview
-Sometimes we need to perform computations (symbolic, numerical, ...) involving mathematical expression that we have already typeset in TeX.  This package provides commands that simplify doing.  It is essentially an Emacs frontend for [[https://github.com/OrangeX4/latex2sympy][latex2sympy]], adapted to work with [[https://www.sagemath.org/][SAGE]], with some bug fixes and convenience features thrown in.  There is a related [[https://marketplace.visualstudio.com/items?itemName=OrangeX4.latex-sympy-calculator][VS Code plugin]].
+This package makes it easy to operate symbolically on TeX code using [[https://www.sagemath.org/][SAGE]].  The main entry point is the command =symtex-dwim=, bound to =C-c v= by default.  This command evaluates a SAGE expression and stores the result of that evaluation, converted to TeX, in the [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Kill-Ring.html][kill-ring]].  If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html_node/elisp/The-Region.html][active region]], then the contents of that region are parsed are stored in the SAGE object =expr=, which we can reference in our expression.
 
-The main entry point is the command =symtex-dwim=, bound to =C-c v= by default.  This command evaluates a SAGE expression (in a SAGE session, which we can access separately via the =*Sage*= buffer) and stores the result of that evaluation, converted to TeX, in the [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Kill-Ring.html][kill-ring]], from where we are free to [[https://www.gnu.org/software/emacs/manual/html_node/emacs/Yanking.html][yank]] it into our TeX buffer.
-
-If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html_node/elisp/The-Region.html][active region]], then the contents of that region, converted from TeX, are stored in the SAGE object =expr=, which we can use in our own expression.  For example, we can cube a matrix by highlighting its TeX code, running =symtex-dwim=, and entering =expr^3= in the minibuffer:
+For example, we can cube a matrix by highlighting its TeX code, running =symtex-dwim=, and entering =expr^3= in the minibuffer:
 
 #+attr_html: :width 800px
 #+attr_latex: :width 800px
@@ -24,7 +22,11 @@ If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html
 
 A common workflow for me is to assign some of my TeX expressions to SAGE variables.  I do this by highlighting those expressions, running =symtex-dwim=, and entering, for instance, ~a = expr~, which assigns the highlighted expression to the variable =a=.  I then perform some calculations directly in the =*Sage*= buffer.  When I've produced some result that I want to put back in my TeX buffer, I call =symtex-dwim= with an inactive region.
 
-An alternative approach would be to use [[https://github.com/sagemath/ob-sagemath][ob-sagemath]] in an org-mode buffer, which can naturally combine SAGE code and TeX, but I often find it more convenient to work in a TeX buffer, so that I have direct access to [[https://www.gnu.org/software/auctex/manual/auctex/Installation.html#Installation][AUCTeX]] and to [[https://github.com/ultronozm/czm-tex-edit.el][packages]] [[https://github.com/ultronozm/czm-tex-fold.el][that]] [[https://github.com/ultronozm/czm-tex-jump.el][build]] [[https://github.com/ultronozm/czm-tex-ref.el][upon]] [[https://github.com/ultronozm/czm-preview.el][it]].  This approach is also collaborator-friendly, since more mathematicians are familiar with TeX than with org.
+The SAGE expressions are evaluated in an active SAGE session, which we can access separately via the =*Sage*= buffer.  They are implemented via org-mode source blocks and logged for future reference.
+
+[[https://www.gnu.org/software/emacs/manual/html_mono/calc.html][Emacs Calc]] gives a built-in way to do something in the direction of this package, but sometimes one wants to use features of SAGE that are not found in Calc.  Another approach would be to use [[https://github.com/sagemath/ob-sagemath][ob-sagemath]] in an org-mode buffer, which can naturally combine SAGE code and TeX, but I often find it more convenient to work in a TeX buffer, so that I have direct access to [[https://www.gnu.org/software/auctex/manual/auctex/Installation.html#Installation][AUCTeX]] and to [[https://github.com/ultronozm/czm-tex-edit.el][packages]] [[https://github.com/ultronozm/czm-tex-fold.el][that]] [[https://github.com/ultronozm/czm-tex-jump.el][build]] [[https://github.com/ultronozm/czm-tex-ref.el][upon]] [[https://github.com/ultronozm/czm-preview.el][it]].  This approach is also collaborator-friendly, since more mathematicians are familiar with TeX than with org.
+
+There is a related [[https://marketplace.visualstudio.com/items?itemName=OrangeX4.latex-sympy-calculator][VS Code plugin]].
 
 * Configuration
 This package requires [[https://github.com/sagemath/ob-sagemath][ob-sagemath]], [[https://github.com/sagemath/sage-shell-mode][sage-shell-mode]] and [[https://github.com/ultronozm/czm-tex-util.el][czm-tex-util.el]], so install those first.
@@ -54,10 +56,13 @@ I use [[https://github.com/progfolio/elpaca][elpaca]], with the following in my 
 	("C-c v" . symtex-dwim)))
 #+end_src
 
+* Customization
+
+- The package logs the source blocks that it executes in a folder controlled by the customization variable =symtex-log-dir=.
+
+- At its core, the package provides an interface for constructing an org-mode source block based on some input and saving the results of executing that block to the kill-ring.  The details concerning the construction of that source block are controlled by the =symtex-spec= customization variable.  You can easily tweak this to use something other than Calc for preprocessing, or something other than SAGE for evaluation, etc.
+
 * Issues
 - If you haven't already launched a =*Sage*= buffer and executed some commands in that, then =symtex-dwim= typically doesn't work correctly the first time it has been called, due to some deprecation warnings.  Sorry!  Just try it again and it should work from then on.
 
-- This package relies on converting objects back and forth between SymPy and Sage, which introduces issues now and then.  It can help to play around with the SAGE member functions ~._sage_()~ and ~._sympy_()~; see for instance the horrendous contents of the customization variable =symtex-sympy2latex-expr=.  
-
-* Credits
-This package uses Python code adapted from [[https://github.com/OrangeX4/latex2sympy][latex2sympy2]].
+- This package relies on override advice to compensate for a few Emacs calc bugs related to TeX parsing.  Eventually I'll submit these upstream as bug reports/patches.

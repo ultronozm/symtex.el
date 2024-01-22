@@ -218,15 +218,27 @@ take care of things."
     (setq latex-expr (replace-regexp-in-string pattern "\\1" latex-expr)))
   latex-expr)
 
-(defmacro symtex--with-calc-language (lang &rest body)
+(defun symtex--math-read-expr-filter (list-args)
+  ;; Apply function foo to the first argument of the list
+  (when (eq calc-language 'latex)
+    (setcar list-args (symtex--preprocess-for-calc (car list-args))))
+  ;; Return the modified list
+  list-args)
+
+(advice-add 'math-read-expr :filter-args #'symtex--math-read-expr-filter)
+
+;;;###autoload
+(defmacro symtex-with-calc-language (lang &rest body)
   "Execute the forms in BODY with `calc-language` set to LANG.
 The value of `calc-language` is restored after BODY has been processed."
   `(let ((old-lang calc-language))
      (unwind-protect
          (progn
-           (calc-create-buffer) ; this only needs to be called once,
-                                ; but couldn't think of a more robust
-                                ; place to put it
+           (save-excursion
+             (calc-create-buffer))
+                                        ; this only needs to be called once,
+                                        ; but couldn't think of a more robust
+                                        ; place to put it
            (calc-set-language ,lang)
            ,@body)
        (when old-lang
@@ -234,10 +246,11 @@ The value of `calc-language` is restored after BODY has been processed."
 
 (defun symtex--parse-latex-for-sage (latex-expr)
   "Parse LATEX-EXPR."
-  (let* ((preprocessed (symtex--preprocess-for-calc latex-expr))
-         (parsed (symtex--with-calc-language 'latex
+  (let* (;; (preprocessed (symtex--preprocess-for-calc latex-expr))
+         (preprocessed latex-expr)
+         (parsed (symtex-with-calc-language 'latex
                                              (math-read-expr preprocessed)))
-         (composed (symtex--with-calc-language 'sage
+         (composed (symtex-with-calc-language 'sage
                                                (math-compose-expr parsed 0)))
          (postprocessor
           (lambda (item self)

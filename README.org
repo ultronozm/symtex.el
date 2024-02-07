@@ -65,4 +65,4 @@ I use [[https://github.com/progfolio/elpaca][elpaca]], with the following in my 
 * Issues
 - If you haven't already launched a =*Sage*= buffer and executed some commands in that, then =symtex-dwim= typically doesn't work correctly the first time it has been called, due to some deprecation warnings.  Sorry!  Just try it again and it should work from then on.
 
-- This package relies on override advice to compensate for a few Emacs calc bugs related to TeX parsing.  Eventually I'll submit these upstream as bug reports/patches.
+- This package relies on override advice to compensate for a few Emacs calc bugs related to TeX parsing.  Patches have been submitted upstream (https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01776.html, https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01777.html) that should eventually make such override advice unnecessary. 

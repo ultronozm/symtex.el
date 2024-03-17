@@ -478,7 +478,6 @@ The value of `calc-language` is restored after BODY has been processed."
 
 (advice-add 'math-read-matrix :override #'symtex--fix-math-read-matrix)
 
-
 (defun symtex--math-compose-subscr (a)
   (if (eq (car (nth 1 a))
           'var)

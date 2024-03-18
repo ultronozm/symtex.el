@@ -200,7 +200,8 @@ The value of `calc-language` is restored after BODY has been processed."
 (defun symtex--parse-latex-for-sage (latex-expr)
   "Parse LATEX-EXPR."
   (let* ((parsed (symtex-with-calc-language 'latex
-                                            (math-read-expr latex-expr)))
+                                            (let ((symtex--calc-allow-functions nil))
+                                              (math-read-expr latex-expr))))
          (composed (symtex-with-calc-language 'sage
                                               (math-compose-expr parsed 0)))
          (postprocessor
@@ -241,191 +242,216 @@ The value of `calc-language` is restored after BODY has been processed."
 (defvar calc-lang-allow-percentsigns)
 (defvar math-exp-str) ;; Dyn scoped
 
+(defvar symtex--calc-allow-functions t)
 
 (defun symtex--fix-math-read-factor ()
   (let ((math-expr-opers (math-expr-ops))
         op)
     (cond ((eq math-exp-token 'number)
-	   (let ((num (math-read-number math-expr-data)))
-	     (if (not num)
-		 (progn
-		   (setq math-exp-old-pos math-exp-pos)
-		   (throw 'syntax "Bad format")))
-	     (math-read-token)
-	     (if (and math-read-expr-quotes
-		      (consp num))
-		 (list 'quote num)
-	       num)))
-	  ((and calc-user-parse-table
-		(setq op (calc-check-user-syntax)))
-	   op)
-	  ((or (equal math-expr-data "-")
-	       (equal math-expr-data "+")
-	       (equal math-expr-data "!")
-	       (equal math-expr-data "|")
-	       (equal math-expr-data "/"))
-	   (setq math-expr-data (concat "u" math-expr-data))
-	   (math-read-factor))
-	  ((and (setq op (assoc math-expr-data math-expr-opers))
-		(eq (nth 2 op) -1))
-	   (if (consp (nth 1 op))
-	       (funcall (car (nth 1 op)) op)
-	     (math-read-token)
-	     (let ((val (math-read-expr-level (nth 3 op))))
-	       (cond ((eq (nth 1 op) 'ident)
-		      val)
-		     ((and (Math-numberp val)
-			   (equal (car op) "u-"))
-		      (math-neg val))
-		     (t (list (nth 1 op) val))))))
-	  ((eq math-exp-token 'symbol)
-	   (let ((sym (intern math-expr-data)))
-	     (math-read-token)
-	     (if (equal math-expr-data calc-function-open)
-		 (let ((f (assq sym math-expr-function-mapping)))
-		   (math-read-token)
-		   (if (consp (cdr f))
-		       (funcall (car (cdr f)) f sym)
-		     (let ((args (if (or (equal math-expr-data calc-function-close)
-					 (eq math-exp-token 'end))
-				     nil
-				   (math-read-expr-list))))
-		       (if (not (or (equal math-expr-data calc-function-close)
-				    (eq math-exp-token 'end)))
-			   (throw 'syntax "Expected `)'"))
-		       (math-read-token)
-		       (if (and (memq calc-language
+	          (let ((num (math-read-number math-expr-data)))
+	            (if (not num)
+		               (progn
+		                 (setq math-exp-old-pos math-exp-pos)
+		                 (throw 'syntax "Bad format")))
+	            (math-read-token)
+	            (if (and math-read-expr-quotes
+		                    (consp num))
+		               (list 'quote num)
+	              num)))
+	         ((and calc-user-parse-table
+		              (setq op (calc-check-user-syntax)))
+	          op)
+	         ((or (equal math-expr-data "-")
+	              (equal math-expr-data "+")
+	              (equal math-expr-data "!")
+	              (equal math-expr-data "|")
+	              (equal math-expr-data "/"))
+	          (setq math-expr-data (concat "u" math-expr-data))
+	          (math-read-factor))
+	         ((and (setq op (assoc math-expr-data math-expr-opers))
+		              (eq (nth 2 op)
+                    -1))
+	          (if (consp (nth 1 op))
+	              (funcall (car (nth 1 op))
+                        op)
+	            (math-read-token)
+	            (let ((val (math-read-expr-level (nth 3 op))))
+	              (cond ((eq (nth 1 op)
+                          'ident)
+		                    val)
+		                   ((and (Math-numberp val)
+			                        (equal (car op)
+                                  "u-"))
+		                    (math-neg val))
+		                   (t (list (nth 1 op)
+                              val))))))
+	         ((eq math-exp-token 'symbol)
+	          (let ((sym (intern math-expr-data)))
+	            (math-read-token)
+	            (if (and
+                  symtex--calc-allow-functions
+                  ;; HACK: This makes it so stuff like "x (y+1)"
+                  ;; parses as multiplication rather than function
+                  ;; evaluation.  I don't care much about
+                  ;; functions.
+                  (equal math-expr-data calc-function-open))
+		               (let ((f (assq sym math-expr-function-mapping)))
+		                 (math-read-token)
+		                 (if (consp (cdr f))
+		                     (funcall (car (cdr f))
+                                f sym)
+		                   (let ((args (if (or (equal math-expr-data calc-function-close)
+					                                    (eq math-exp-token 'end))
+				                                 nil
+				                               (math-read-expr-list))))
+		                     (if (not (or (equal math-expr-data calc-function-close)
+				                                (eq math-exp-token 'end)))
+			                        (throw 'syntax "Expected `)'"))
+		                     (math-read-token)
+		                     (if (and (memq calc-language
                                       calc-lang-parens-are-subscripts)
                                 args
-				(require 'calc-ext)
-				(let ((calc-matrix-mode 'scalar))
-				  (math-known-matrixp
-				   (list 'var sym
-					 (intern
-					  (concat "var-"
-						  (symbol-name sym)))))))
-			   (math-parse-fortran-subscr sym args)
-			 (if f
-			     (setq sym (cdr f))
-			   (and (= (aref (symbol-name sym) 0) ?\\)
-				(< (prefix-numeric-value calc-language-option)
-				   0)
-				(setq sym (intern (substring (symbol-name sym)
-							     1))))
-			   (or (string-search "-" (symbol-name sym))
-			       (setq sym (intern
-					  (concat "calcFunc-"
-						  (symbol-name sym))))))
-			 (cons sym args)))))
-	       (if math-read-expr-quotes
-		   sym
-		 (let ((val (list 'var
-				  (intern (math-remove-dashes
-					   (symbol-name sym)))
-				  (if (string-search "-" (symbol-name sym))
-				      sym
-				    (intern (concat "var-"
-						    (symbol-name sym)))))))
-		   (let ((v (or
-                             (assq (nth 1 val) math-expr-variable-mapping)
+				                            (require 'calc-ext)
+				                            (let ((calc-matrix-mode 'scalar))
+				                              (math-known-matrixp
+				                               (list 'var sym
+					                                    (intern
+					                                     (concat "var-"
+						                                            (symbol-name sym)))))))
+			                        (math-parse-fortran-subscr sym args)
+			                      (if f
+			                          (setq sym (cdr f))
+			                        (and (= (aref (symbol-name sym)
+                                         0)
+                                   ?\\)
+				                            (< (prefix-numeric-value calc-language-option)
+				                               0)
+				                            (setq sym (intern (substring (symbol-name sym)
+							                                                      1))))
+			                        (or (string-search "-" (symbol-name sym))
+			                            (setq sym (intern
+					                                     (concat "calcFunc-"
+						                                            (symbol-name sym))))))
+			                      (cons sym args)))))
+	              (if math-read-expr-quotes
+		                 sym
+		               (let ((val (list 'var
+				                              (intern (math-remove-dashes
+					                                      (symbol-name sym)))
+				                              (if (string-search "-" (symbol-name sym))
+				                                  sym
+				                                (intern (concat "var-"
+						                                              (symbol-name sym)))))))
+		                 (let ((v (or
+                             (assq (nth 1 val)
+                                   math-expr-variable-mapping)
                              (assq (math-restore-placeholders (nth 1 val))
                                    math-expr-variable-mapping))))
-		     (and v (setq val (if (consp (cdr v))
-					  (funcall (car (cdr v)) v val)
-					(list 'var
-					      (intern
-					       (substring (symbol-name (cdr v))
-							  4))
-					      (cdr v))))))
-		   (while (and (memq calc-language
+		                   (and v (setq val (if (consp (cdr v))
+					                                     (funcall (car (cdr v))
+                                                   v val)
+					                                   (list 'var
+					                                         (intern
+					                                          (substring (symbol-name (cdr v))
+							                                                   4))
+					                                         (cdr v))))))
+		                 (while (and (memq calc-language
                                      calc-lang-brackets-are-subscripts)
-			       (equal math-expr-data "["))
-		     (math-read-token)
+			                            (equal math-expr-data "["))
+		                   (math-read-token)
                      (let ((el (math-read-expr-list)))
                        (while el
                          (setq val (append (list 'calcFunc-subscr val)
                                            (list (car el))))
                          (setq el (cdr el))))
-		     (if (equal math-expr-data "]")
-			 (math-read-token)
-		       (throw 'syntax "Expected `]'")))
-		   val)))))
-	  ((eq math-exp-token 'dollar)
-	   (let ((abs (if (> math-expr-data 0) math-expr-data (- math-expr-data))))
-	     (if (>= (length calc-dollar-values) abs)
-		 (let ((num math-expr-data))
-		   (math-read-token)
-		   (setq calc-dollar-used (max calc-dollar-used num))
-		   (math-check-complete (nth (1- abs) calc-dollar-values)))
-	       (throw 'syntax (if calc-dollar-values
-				  "Too many $'s"
-				"$'s not allowed in this context")))))
-	  ((eq math-exp-token 'hash)
-	   (or calc-hashes-used
-	       (throw 'syntax "#'s not allowed in this context"))
-	   (require 'calc-ext)
-	   (if (<= math-expr-data (length calc-arg-values))
-	       (let ((num math-expr-data))
-		 (math-read-token)
-		 (setq calc-hashes-used (max calc-hashes-used num))
-		 (nth (1- num) calc-arg-values))
-	     (throw 'syntax "Too many # arguments")))
-	  ((equal math-expr-data "(")
-	   (let* ((exp (let ((math-exp-keep-spaces nil))
-			 (math-read-token)
-			 (if (or (equal math-expr-data "\\dots")
-				 (equal math-expr-data "\\ldots"))
-			     '(neg (var inf var-inf))
-			   (math-read-expr-level 0)))))
-	     (let ((math-exp-keep-spaces nil))
-	       (cond
-		((equal math-expr-data ",")
-		 (progn
-		   (math-read-token)
-		   (let ((exp2 (math-read-expr-level 0)))
-		     (setq exp
-			   (if (and exp2 (Math-realp exp) (Math-realp exp2))
-			       (math-normalize (list 'cplx exp exp2))
-			     (list '+ exp (list '* exp2 '(var i var-i))))))))
-		((equal math-expr-data ";")
-		 (progn
-		   (math-read-token)
-		   (let ((exp2 (math-read-expr-level 0)))
-		     (setq exp (if (and exp2 (Math-realp exp)
-					(Math-anglep exp2))
-				   (math-normalize (list 'polar exp exp2))
-				 (require 'calc-ext)
-				 (list '* exp
-				       (list 'calcFunc-exp
-					     (list '*
-						   (math-to-radians-2 exp2)
-						   '(var i var-i)))))))))
-		((or (equal math-expr-data "\\dots")
-		     (equal math-expr-data "\\ldots"))
-		 (progn
-		   (math-read-token)
-		   (let ((exp2 (if (or (equal math-expr-data ")")
-				       (equal math-expr-data "]")
-				       (eq math-exp-token 'end))
-				   '(var inf var-inf)
-				 (math-read-expr-level 0))))
-		     (setq exp
-			   (list 'intv
-				 (if (equal math-expr-data ")") 0 1)
-				 exp
-				 exp2)))))))
-	     (if (not (or (equal math-expr-data ")")
-			  (and (equal math-expr-data "]") (eq (car-safe exp) 'intv))
-			  (eq math-exp-token 'end)))
-		 (throw 'syntax "Expected `)'"))
-	     (math-read-token)
-	     exp))
-	  ((eq math-exp-token 'string)
-	   (require 'calc-ext)
-	   (math-read-string))
-	  ((equal math-expr-data "[")
-	   (require 'calc-ext)
-	   (let ((space-sep
+		                   (if (equal math-expr-data "]")
+			                      (math-read-token)
+		                     (throw 'syntax "Expected `]'")))
+		                 val)))))
+	         ((eq math-exp-token 'dollar)
+	          (let ((abs (if (> math-expr-data 0)
+                          math-expr-data (- math-expr-data))))
+	            (if (>= (length calc-dollar-values)
+                     abs)
+		               (let ((num math-expr-data))
+		                 (math-read-token)
+		                 (setq calc-dollar-used (max calc-dollar-used num))
+		                 (math-check-complete (nth (1- abs)
+                                             calc-dollar-values)))
+	              (throw 'syntax (if calc-dollar-values
+				                              "Too many $'s"
+				                            "$'s not allowed in this context")))))
+	         ((eq math-exp-token 'hash)
+	          (or calc-hashes-used
+	              (throw 'syntax "#'s not allowed in this context"))
+	          (require 'calc-ext)
+	          (if (<= math-expr-data (length calc-arg-values))
+	              (let ((num math-expr-data))
+		               (math-read-token)
+		               (setq calc-hashes-used (max calc-hashes-used num))
+		               (nth (1- num)
+                      calc-arg-values))
+	            (throw 'syntax "Too many # arguments")))
+	         ((equal math-expr-data "(")
+	          (let* ((exp (let ((math-exp-keep-spaces nil))
+			                      (math-read-token)
+			                      (if (or (equal math-expr-data "\\dots")
+				                             (equal math-expr-data "\\ldots"))
+			                          '(neg (var inf var-inf))
+			                        (math-read-expr-level 0)))))
+	            (let ((math-exp-keep-spaces nil))
+	              (cond
+		              ((equal math-expr-data ",")
+		               (progn
+		                 (math-read-token)
+		                 (let ((exp2 (math-read-expr-level 0)))
+		                   (setq exp
+			                        (if (and exp2 (Math-realp exp)
+                                    (Math-realp exp2))
+			                            (math-normalize (list 'cplx exp exp2))
+			                          (list '+ exp (list '* exp2 '(var i var-i))))))))
+		              ((equal math-expr-data ";")
+		               (progn
+		                 (math-read-token)
+		                 (let ((exp2 (math-read-expr-level 0)))
+		                   (setq exp (if (and exp2 (Math-realp exp)
+					                                   (Math-anglep exp2))
+				                               (math-normalize (list 'polar exp exp2))
+				                             (require 'calc-ext)
+				                             (list '* exp
+				                                   (list 'calcFunc-exp
+					                                        (list '*
+						                                             (math-to-radians-2 exp2)
+						                                             '(var i var-i)))))))))
+		              ((or (equal math-expr-data "\\dots")
+		                   (equal math-expr-data "\\ldots"))
+		               (progn
+		                 (math-read-token)
+		                 (let ((exp2 (if (or (equal math-expr-data ")")
+				                                   (equal math-expr-data "]")
+				                                   (eq math-exp-token 'end))
+				                               '(var inf var-inf)
+				                             (math-read-expr-level 0))))
+		                   (setq exp
+			                        (list 'intv
+				                             (if (equal math-expr-data ")")
+                                     0 1)
+				                             exp
+				                             exp2)))))))
+	            (if (not (or (equal math-expr-data ")")
+			                       (and (equal math-expr-data "]")
+                               (eq (car-safe exp)
+                                   'intv))
+			                       (eq math-exp-token 'end)))
+		               (throw 'syntax "Expected `)'"))
+	            (math-read-token)
+	            exp))
+	         ((eq math-exp-token 'string)
+	          (require 'calc-ext)
+	          (math-read-string))
+	         ((equal math-expr-data "[")
+	          (require 'calc-ext)
+	          (let ((space-sep
                   ;; Allow spaces as separators when the vector is
                   ;; specified using "[", but not when it is specified
                   ;; using language-specific constructions such as
@@ -433,13 +459,13 @@ The value of `calc-language` is restored after BODY has been processed."
                   (equal "[" (substring math-exp-str math-exp-old-pos
                                         math-exp-pos))))
              (math-read-brackets space-sep "]")))
-	  ((equal math-expr-data "{")
-	   (require 'calc-ext)
-	   (math-read-brackets nil "}"))
-	  ((equal math-expr-data "<")
-	   (require 'calc-ext)
-	   (math-read-angle-brackets))
-	  (t (throw 'syntax "Expected a number")))))
+	         ((equal math-expr-data "{")
+	          (require 'calc-ext)
+	          (math-read-brackets nil "}"))
+	         ((equal math-expr-data "<")
+	          (require 'calc-ext)
+	          (math-read-angle-brackets))
+	         (t (throw 'syntax "Expected a number")))))
 
 (advice-add 'math-read-factor :override #'symtex--fix-math-read-factor)
 

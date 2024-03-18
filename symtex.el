@@ -197,6 +197,8 @@ The value of `calc-language` is restored after BODY has been processed."
            ,@body)
        (calc-set-language old-lang))))
 
+(defvar symtex--calc-allow-functions t)
+
 (defun symtex--parse-latex-for-sage (latex-expr)
   "Parse LATEX-EXPR."
   (let* ((parsed (symtex-with-calc-language 'latex
@@ -241,8 +243,6 @@ The value of `calc-language` is restored after BODY has been processed."
 (defvar calc-lang-allow-underscores)
 (defvar calc-lang-allow-percentsigns)
 (defvar math-exp-str) ;; Dyn scoped
-
-(defvar symtex--calc-allow-functions t)
 
 (defun symtex--fix-math-read-factor ()
   (let ((math-expr-opers (math-expr-ops))
@@ -289,12 +289,14 @@ The value of `calc-language` is restored after BODY has been processed."
 	          (let ((sym (intern math-expr-data)))
 	            (math-read-token)
 	            (if (and
-                  symtex--calc-allow-functions
-                  ;; HACK: This makes it so stuff like "x (y+1)"
-                  ;; parses as multiplication rather than function
-                  ;; evaluation.  I don't care much about
-                  ;; functions.
-                  (equal math-expr-data calc-function-open))
+                  (equal math-expr-data calc-function-open)
+                  (or
+                   ;; HACK: This makes it so stuff like "x (y+1)"
+                   ;; parses as multiplication rather than function
+                   ;; evaluation.  I don't care much about
+                   ;; variable functions.
+                   symtex--calc-allow-functions
+                   (assq sym math-expr-function-mapping)))
 		               (let ((f (assq sym math-expr-function-mapping)))
 		                 (math-read-token)
 		                 (if (consp (cdr f))
@@ -472,23 +474,23 @@ The value of `calc-language` is restored after BODY has been processed."
 
 (defun symtex--fix-math-read-vector ()
   (let* ((val (list (math-read-expr-level 0)))
-	 (last val))
+	        (last val))
     (while (progn
-	     (while (eq math-exp-token 'space)
-	       (math-read-token))
-	     (and (not (eq math-exp-token 'end))
-		  (not (equal math-expr-data ";"))
-		  (not (equal math-expr-data math-rb-close))
-		  (not (equal math-expr-data "\\dots"))
-		  (not (equal math-expr-data "\\ldots"))))
+	            (while (eq math-exp-token 'space)
+	              (math-read-token))
+	            (and (not (eq math-exp-token 'end))
+		                (not (equal math-expr-data ";"))
+		                (not (equal math-expr-data math-rb-close))
+		                (not (equal math-expr-data "\\dots"))
+		                (not (equal math-expr-data "\\ldots"))))
       (if (equal math-expr-data ",")
-	  (math-read-token))
+	         (math-read-token))
       (while (eq math-exp-token 'space)
-	(math-read-token))
+	       (math-read-token))
       (when (not (equal math-expr-data math-rb-close))
         (let ((rest (list (math-read-expr-level 0))))
-	  (setcdr last rest)
-	  (setq last rest))))
+	         (setcdr last rest)
+	         (setq last rest))))
     (cons 'vec val)))
 
 (advice-add 'math-read-vector :override #'symtex--fix-math-read-vector)

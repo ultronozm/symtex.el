@@ -184,7 +184,8 @@ variable `symtex-expand-expression'."
 ;;;###autoload
 (defmacro symtex-with-calc-language (lang &rest body)
   "Execute the forms in BODY with `calc-language` set to LANG.
-The value of `calc-language` is restored after BODY has been processed."
+The value of `calc-language` is restored after BODY has been
+processed."
   `(let ((old-lang calc-language))
      (unwind-protect
          (progn

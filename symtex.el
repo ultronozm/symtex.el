@@ -3,9 +3,9 @@
 ;; Copyright (C) 2023  Paul D. Nelson
 
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
-;; Version: 0.0
+;; Version: 0.1
 ;; URL: https://github.com/ultronozm/symtex.el
-;; Package-Requires: ((emacs "28.1") (czm-tex-util "0.0") (sage-shell-mode "0.3") (ob-sagemath "0.4"))
+;; Package-Requires: ((emacs "28.1") (czm-tex-util "0.0"))
 ;; Keywords: tex, tools, convenience
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -30,10 +30,10 @@
 
 ;;; Code:
 
-(require 'sage-shell-mode)
+;; (require 'sage-shell-mode)
 (require 'czm-tex-util)
-(require 'python)
-(require 'ob-sagemath)
+;; (require 'python)
+;; (require 'ob-sagemath)
 (require 'calc)
 (require 'calc-ext)
 (require 'calccomp)
@@ -43,49 +43,18 @@
   :prefix "symtex-"
   :group 'applications)
 
-(defcustom symtex-log-dir
-  "~/symtex-log/"
-  "Directory for logging the source blocks used by symtex."
-  :type 'string)
+(defconst symtex-input-format-string
+  "expr=%s;")
 
-(defun symtex--log (block)
-  "Log the org source BLOCK."
-  (let* ((date-str (format-time-string "%Y-%m-%d"))
-         (org-file-path (expand-file-name (concat "symtex-" date-str ".org")
-                                          symtex-log-dir ))
-         (org-buffer (find-file-noselect org-file-path))
-         (timestamp (format-time-string "%Y-%m-%d %H:%M:%S")))
-    (with-current-buffer org-buffer
-      (goto-char (point-max))
-      (org-insert-heading t nil t)
-      (insert (format "%s\n" timestamp))
-      (insert block)
-      (save-buffer))))
+(defconst symtex-op-format-string
+  "result_expr = %s;result_str = latex(result_expr);result_str")
 
-(defcustom symtex-spec
-  '(:preprocess symtex--parse-latex-for-sage
-                :block-format "#+begin_src sage :results silent\n%s\n#+end_src"
-                :header nil
-                :input "expr = %s"
-                :op "result_expr = %s"
-                :output "result_str = latex(result_expr)
-result_str")
-  "Specification for how to operate on TeX expressions."
-  :type 'plist)
-
-(defun symtex--code (op input spec)
-  (let ((preprocess (plist-get spec :preprocess))
-        (header (plist-get spec :header))
-        (input-format (plist-get spec :input))
-        (op-format (plist-get spec :op))
-        (output-format (plist-get spec :output)))
-    (setq input (when input (funcall preprocess input)))
-    (mapconcat #'identity
-               (delq nil (list header
-                               (when input (format input-format input))
-                               (format op-format op)
-                               output-format))
-               "\n")))
+(defun symtex--code (op input)
+  "Generate SAGE code for OP and INPUT."
+  (concat
+   (when input
+     (format symtex-input-format-string (symtex--parse-latex-for-sage input)))
+   (format symtex-op-format-string op)))
 
 (defun symtex--tidy (result)
   "Tidy the RESULT of some sage code evaluation."
@@ -99,8 +68,16 @@ result_str")
     (goto-char (point-min))
     (while (re-search-forward "\\\\end{array}\\\\right)" nil t)
       (replace-match "\\\\end{pmatrix}"))
+    ;; erase trailing newline
+    (goto-char (point-max))
+    (when (eq (char-before) ?\n)
+      (delete-char -1))
     (buffer-substring-no-properties (point-min)
                                     (point-max))))
+
+(defcustom symtex-process-buffer "*Sage*"
+  "Name of the buffer used for SAGE code evaluation."
+  :type 'string)
 
 ;;;###autoload
 (defun symtex-process (op &optional input)
@@ -109,18 +86,16 @@ If INPUT is non-nil, then it is parsed, converted to a sage
 object, and stored in the sage variable `expr'.  The code OP is
 evaluated.  Its result is stored in the `kill-ring'."
   (interactive "sExpression to evaluate:")
-  (let ((block (format (plist-get symtex-spec :block-format)
-                       (symtex--code op input symtex-spec))))
-    (symtex--log block)
-    (let ((result (with-temp-buffer
-                    (insert block)
-                    (goto-char (point-min))
-                    (let ((python-indent-guess-indent-offset-verbose nil)
-                          (inhibit-message t))
-                      (symtex--tidy
-                       (org-babel-execute-src-block))))))
-      (kill-new result)
-      (message "Result saved to kill-ring: %s" result))))
+  (let* ((code (symtex--code op input))
+         (buf (or (get-buffer symtex-process-buffer)
+                  (error "No buffer named %s" symtex-process-buffer)))
+         (results (with-current-buffer buf
+                    (comint-redirect-results-list
+                     code (rx (one-or-more (or any ?\n))) 0)))
+         (result (car results))
+         (result (symtex--tidy result)))
+    (kill-new result)
+    (message "Result saved to kill-ring: %s" result)))
 
 (defun symtex--read-evaluate-region (beg end &optional op)
   "Evaluate SAGE expression involving TeX region (BEG . END).
@@ -202,11 +177,14 @@ processed."
 
 (defun symtex--parse-latex-for-sage (latex-expr)
   "Parse LATEX-EXPR."
-  (let* ((parsed (symtex-with-calc-language 'latex
-                                            (let ((symtex--calc-allow-functions nil))
-                                              (math-read-expr latex-expr))))
-         (composed (symtex-with-calc-language 'sage
-                                              (math-compose-expr parsed 0)))
+  (let* ((parsed
+          (symtex-with-calc-language
+           'latex
+           (let ((symtex--calc-allow-functions nil))
+             (math-read-expr latex-expr))))
+         (composed
+          (symtex-with-calc-language 'sage
+                                     (math-compose-expr parsed 0)))
          (postprocessor
           (lambda (item self)
             (cond ((listp item)

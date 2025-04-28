@@ -10,7 +10,7 @@ For example, we can cube a matrix by highlighting its TeX code, running =symtex-
 #+attr_latex: :width 800px
 [[./img/cube.gif]]
 
-(The live previewing is via the package [[https://github.com/ultronozm/czm-preview.el][czm-preview]].)
+(The live previewing is via the package [[https://github.com/ultronozm/preview-auto.el][preview-auto]].)
 
 When the region is inactive, the command =symtex-dwim= behaves similarly, except that =expr= is not set to anything before our SAGE expression is evaluated.
 
@@ -22,14 +22,14 @@ If we run =symtex-dwim= with an [[https://www.gnu.org/software/emacs/manual/html
 
 A common workflow for me is to assign some of my TeX expressions to SAGE variables.  I do this by highlighting those expressions, running =symtex-dwim=, and entering, for instance, ~a = expr~, which assigns the highlighted expression to the variable =a=.  I then perform some calculations directly in the =*Sage*= buffer.  When I've produced some result that I want to put back in my TeX buffer, I call =symtex-dwim= with an inactive region.
 
-The SAGE expressions are evaluated in an active SAGE session, which we can access separately via the =*Sage*= buffer.  They are implemented via org-mode source blocks and logged for future reference.
+The SAGE expressions are evaluated in an active SAGE session.
 
-[[https://www.gnu.org/software/emacs/manual/html_mono/calc.html][Emacs Calc]] gives a built-in way to do something in the direction of this package, but sometimes one wants to use features of SAGE that are not found in Calc.  Another approach would be to use [[https://github.com/sagemath/ob-sagemath][ob-sagemath]] in an org-mode buffer, which can naturally combine SAGE code and TeX, but I often find it more convenient to work in a TeX buffer, so that I have direct access to [[https://www.gnu.org/software/auctex/manual/auctex/Installation.html#Installation][AUCTeX]] and to [[https://github.com/ultronozm/czm-tex-edit.el][packages]] [[https://github.com/ultronozm/czm-tex-fold.el][that]] [[https://github.com/ultronozm/czm-tex-jump.el][build]] [[https://github.com/ultronozm/czm-tex-ref.el][upon]] [[https://github.com/ultronozm/czm-preview.el][it]].  This approach is also collaborator-friendly, since more mathematicians are familiar with TeX than with org.
+[[https://www.gnu.org/software/emacs/manual/html_mono/calc.html][Emacs Calc]] gives a built-in way to do something in the direction of this package, but sometimes one wants to use features of SAGE that are not found in Calc.  Another approach would be to use [[https://github.com/sagemath/ob-sagemath][ob-sagemath]] in an org-mode buffer, which can naturally combine SAGE code and TeX, but I often find it more convenient to work in a TeX buffer, so that I have direct access to [[https://www.gnu.org/software/auctex/manual/auctex/Installation.html#Installation][AUCTeX]] and to [[https://github.com/ultronozm/czm-tex-edit.el][packages]] [[https://github.com/ultronozm/czm-tex-fold.el][that]] [[https://github.com/ultronozm/czm-tex-jump.el][build]] [[https://github.com/ultronozm/czm-tex-ref.el][upon]] [[https://github.com/ultronozm/preview-auto.el][it]].  This approach is also collaborator-friendly, since more mathematicians are familiar with TeX than with org.
 
 There is a related [[https://marketplace.visualstudio.com/items?itemName=OrangeX4.latex-sympy-calculator][VS Code plugin]].
 
 * Configuration
-This package requires [[https://github.com/sagemath/ob-sagemath][ob-sagemath]], [[https://github.com/sagemath/sage-shell-mode][sage-shell-mode]] and [[https://github.com/ultronozm/czm-tex-util.el][czm-tex-util.el]], so install those first.
+This package requires [[https://github.com/sagemath/sage-shell-mode][sage-shell-mode]] (or [[https://codeberg.org/rahguzar/sage-mode][sage-mode]]) and [[https://github.com/ultronozm/czm-tex-util.el][czm-tex-util.el]], so install those first.
 
 Download this repository, install using =M-x package-install-file= (or package-vc-install, straight, elpaca, ...), and add something like the following to your [[https://www.emacswiki.org/emacs/InitFile][init file]]:
 #+begin_src elisp
@@ -44,25 +44,23 @@ Modify suitably, replacing =C-c v= with your preferred bind.
 I use [[https://github.com/progfolio/elpaca][elpaca]], with the following in my init file:
 #+begin_src elisp
 (use-package symtex
-  :elpaca (:host github
-                 :repo "ultronozm/symtex.el"
-                 :files ("*.el" "*.py")
-                 :depth nil)
+  :ensure (:host github :repo "ultronozm/symtex.el" :depth nil)
   :after latex
   :bind
-  (:map global-map
-        ("C-c V" . symtex-process))
-  (:map LaTeX-mode-map
-	("C-c v" . symtex-dwim)))
+  (:map global-map ("C-c V" . symtex-process))
+  (:map LaTeX-mode-map ("C-c v" . symtex-dwim)))
 #+end_src
 
-* Customization
+Before using symtex commands, you need to have a running Sage process in a buffer.  By default, symtex expects this buffer to be named ~*Sage*~.  You can create this buffer in one of two ways:
 
-- The package logs the source blocks that it executes in a folder controlled by the customization variable =symtex-log-dir=.
+1. If using sage-shell-mode: Run =M-x sage-shell:run-sage= to start a Sage process.
+2. If using sage-mode: Run =M-x run-sage= to start a Sage process.
 
-- At its core, the package provides an interface for constructing an org-mode source block based on some input and saving the results of executing that block to the kill-ring.  The details concerning the construction of that source block are controlled by the =symtex-spec= customization variable.  You can easily tweak this to use something other than Calc for preprocessing, or something other than SAGE for evaluation, etc.
+If you prefer to use a different buffer name for your Sage process, you can customize the variable =symtex-process-buffer=:
+
+#+begin_src elisp
+(setq symtex-process-buffer "*My-Custom-Sage-Buffer*")
+#+end_src
 
 * Issues
-- If you haven't already launched a =*Sage*= buffer and executed some commands in that, then =symtex-dwim= typically doesn't work correctly the first time it has been called, due to some deprecation warnings.  Sorry!  Just try it again and it should work from then on.
-
 - This package relies on override advice to compensate for a few Emacs calc bugs related to TeX parsing.  Patches have been submitted upstream (https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01776.html, https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01777.html) that should eventually make such override advice unnecessary. 

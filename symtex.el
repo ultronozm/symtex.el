@@ -3,7 +3,7 @@
 ;; Copyright (C) 2023  Paul D. Nelson
 
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
-;; Version: 0.1
+;; Version: 0.1.1
 ;; URL: https://github.com/ultronozm/symtex.el
 ;; Package-Requires: ((emacs "28.1") (czm-tex-util "0.0"))
 ;; Keywords: tex, tools, convenience

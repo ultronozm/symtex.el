@@ -3,7 +3,7 @@
 ;; Copyright (C) 2023  Paul D. Nelson
 
 ;; Author: Paul D. Nelson <nelson.paul.david@gmail.com>
-;; Version: 0.1.1
+;; Version: 0.1.2
 ;; URL: https://github.com/ultronozm/symtex.el
 ;; Package-Requires: ((emacs "28.1") (czm-tex-util "0.0"))
 ;; Keywords: tex, tools, convenience
@@ -30,13 +30,13 @@
 
 ;;; Code:
 
-;; (require 'sage-shell-mode)
+(require 'cl-lib)
+(require 'comint)
 (require 'czm-tex-util)
-;; (require 'python)
-;; (require 'ob-sagemath)
 (require 'calc)
 (require 'calc-ext)
 (require 'calccomp)
+(require 'subr-x)
 
 (defgroup symtex nil
   "Symtex: A package for parsing and evaluating LaTeX math expressions with SageMath."
@@ -47,37 +47,134 @@
   "expr=%s;")
 
 (defconst symtex-op-format-string
-  "result_expr = %s;result_str = latex(result_expr);result_str")
+  "result_expr = %s;result_str = latex(result_expr)")
 
-(defun symtex--code (op input)
-  "Generate SAGE code for OP and INPUT."
+(defvar symtex--request-counter 0
+  "Counter used to make result markers unique within an Emacs session.")
+
+(defun symtex--result-markers ()
+  "Return unique begin and end markers for one Sage evaluation."
+  (let ((id (cl-incf symtex--request-counter)))
+    (cons (format "__SYMTEX_RESULT_%d_%d_BEGIN__" (emacs-pid) id)
+          (format "__SYMTEX_RESULT_%d_%d_END__" (emacs-pid) id))))
+
+(defun symtex--code (op input &optional markers)
+  "Generate Sage code for OP and INPUT.
+When MARKERS is a cons cell, print the result between its car and cdr."
   (concat
    (when input
      (format symtex-input-format-string (symtex--parse-latex-for-sage input)))
-   (format symtex-op-format-string op)))
+   (format symtex-op-format-string op)
+   (when markers
+     (format ";print(%S, result_str, %S, sep=\"\")"
+             (car markers) (cdr markers)))))
 
 (defun symtex--tidy (result)
   "Tidy the RESULT of some sage code evaluation."
   (with-temp-buffer
     (insert result)
-    (goto-char (point-max))
     (goto-char (point-min))
+    (while (search-forward "\r" nil t)
+      (replace-match ""))
     (goto-char (point-min))
     (while (re-search-forward "\\\\left(\\\\begin{array}{\\(r+\\)}" nil t)
       (replace-match "\\\\begin{pmatrix}"))
     (goto-char (point-min))
     (while (re-search-forward "\\\\end{array}\\\\right)" nil t)
       (replace-match "\\\\end{pmatrix}"))
-    ;; erase trailing newline
+    ;; Comint output may use CRLF even on Unix-like systems.
     (goto-char (point-max))
-    (when (eq (char-before) ?\n)
-      (delete-char -1))
+    (skip-chars-backward "\r\n")
+    (delete-region (point) (point-max))
     (buffer-substring-no-properties (point-min)
                                     (point-max))))
 
 (defcustom symtex-process-buffer "*Sage*"
-  "Name of the buffer used for SAGE code evaluation."
+  "Preferred buffer for Sage code evaluation.
+If this buffer does not contain a live Sage process, SymTeX will
+automatically use the sole live Sage comint buffer.  This fallback
+supports versions of `sage-mode' that name their process buffer
+`*Python*'."
   :type 'string)
+
+(defun symtex--sage-process-buffer-p (buffer)
+  "Return non-nil if BUFFER contains a live Sage comint process."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (let* ((process (get-buffer-process buffer))
+             (command (and process (process-command process)))
+             (program (car-safe command)))
+        (and process
+             (process-live-p process)
+             (derived-mode-p 'comint-mode)
+             (or (derived-mode-p 'sage-shell-mode 'sage-shell:sage-mode)
+                 (and (stringp program)
+                      (string-match-p
+                       (rx (or bos "/") "sage" (? ".exe") eos)
+                       program))))))))
+
+(defun symtex--process-buffer ()
+  "Return the Sage process buffer to use, or signal a user error."
+  (let* ((preferred (get-buffer symtex-process-buffer))
+         (candidates (cl-remove-if-not #'symtex--sage-process-buffer-p
+                                       (buffer-list))))
+    (cond
+     ((symtex--sage-process-buffer-p preferred) preferred)
+     ((null candidates)
+      (user-error
+       (concat "No live Sage process found; start one with `M-x sage-run' "
+               "(sage-mode) or `M-x sage-shell:run-sage' "
+               "(sage-shell-mode)")))
+     ((null (cdr candidates)) (car candidates))
+     (t
+      (user-error
+       "Multiple Sage process buffers found (%s); customize `symtex-process-buffer'"
+       (mapconcat #'buffer-name candidates ", "))))))
+
+(defun symtex--redirect-output (buffer code)
+  "Send CODE to the comint process in BUFFER and return its output."
+  (let* ((process (get-buffer-process buffer))
+         (output-buffer (generate-new-buffer " *symtex-output*")))
+    (unwind-protect
+        (progn
+          (with-current-buffer buffer
+            (when (and (fboundp 'sage-busy-p)
+                       (sage-busy-p buffer))
+              (user-error "Sage process in %s is busy" (buffer-name buffer)))
+            (unless comint-redirect-completed
+              (user-error "Another redirected command is using %s"
+                          (buffer-name buffer)))
+            (comint-redirect-send-command-to-process
+             code output-buffer process nil t)
+            (while (and (not comint-redirect-completed)
+                        (process-live-p process)
+                        (accept-process-output process)))
+            (unless comint-redirect-completed
+              (error "Sage process exited before producing a prompt")))
+          (with-current-buffer output-buffer
+            ;; Some Sage front ends echo input even when comint's ECHO
+            ;; argument is nil.  Do not mistake markers in the echoed
+            ;; `print' command for the actual result.
+            (goto-char (point-min))
+            (when (looking-at (regexp-quote code))
+              (forward-line 1))
+            (buffer-substring-no-properties (point) (point-max))))
+      (when (buffer-live-p output-buffer)
+        (kill-buffer output-buffer)))))
+
+(defun symtex--result-from-output (output markers)
+  "Extract a successful result from Sage OUTPUT using MARKERS."
+  (let ((regexp (concat "^" (regexp-quote (car markers))
+                        "\\(\\(?:.\\|\n\\)*?\\)"
+                        (regexp-quote (cdr markers)) "\r?$")))
+    (if (string-match regexp output)
+        (symtex--tidy (match-string 1 output))
+      (let ((detail (string-trim output)))
+        (setq detail (string-replace "\r" "" detail))
+        (user-error "Sage evaluation failed%s"
+                    (if (string-empty-p detail)
+                        " without producing output"
+                      (concat ":\n" detail)))))))
 
 ;;;###autoload
 (defun symtex-process (op &optional input)
@@ -86,16 +183,14 @@ If INPUT is non-nil, then it is parsed, converted to a sage
 object, and stored in the sage variable `expr'.  The code OP is
 evaluated.  Its result is stored in the `kill-ring'."
   (interactive "sExpression to evaluate:")
-  (let* ((code (symtex--code op input))
-         (buf (or (get-buffer symtex-process-buffer)
-                  (error "No buffer named %s" symtex-process-buffer)))
-         (results (with-current-buffer buf
-                    (comint-redirect-results-list
-                     code (rx (one-or-more (or any ?\n))) 0)))
-         (result (car results))
-         (result (symtex--tidy result)))
+  (let* ((markers (symtex--result-markers))
+         (code (symtex--code op input markers))
+         (buffer (symtex--process-buffer))
+         (output (symtex--redirect-output buffer code))
+         (result (symtex--result-from-output output markers)))
     (kill-new result)
-    (message "Result saved to kill-ring: %s" result)))
+    (message "Result saved to kill-ring: %s" result)
+    result))
 
 (defun symtex--read-evaluate-region (beg end &optional op)
   "Evaluate SAGE expression involving TeX region (BEG . END).
@@ -178,10 +273,29 @@ processed."
 (defun symtex--parse-latex-for-sage (latex-expr)
   "Parse LATEX-EXPR."
   (let* ((parsed
-          (symtex-with-calc-language
-           'latex
-           (let ((symtex--calc-allow-functions nil))
-             (math-read-expr latex-expr))))
+          (progn
+            (advice-add 'math-read-factor :override
+                        #'symtex--fix-math-read-factor)
+            (advice-add 'math-read-vector :override
+                        #'symtex--fix-math-read-vector)
+            (advice-add 'math-read-matrix :override
+                        #'symtex--fix-math-read-matrix)
+            (unwind-protect
+                ;; Advising, rather than rebinding the function cells,
+                ;; also works when Calc is natively compiled.
+                (symtex-with-calc-language
+                 'latex
+                 (let ((symtex--calc-allow-functions nil))
+                   (math-read-expr latex-expr)))
+              (advice-remove 'math-read-factor
+                             #'symtex--fix-math-read-factor)
+              (advice-remove 'math-read-vector
+                             #'symtex--fix-math-read-vector)
+              (advice-remove 'math-read-matrix
+                             #'symtex--fix-math-read-matrix))))
+         (_ (when (eq (car-safe parsed) 'error)
+              (user-error "Could not parse TeX expression: %s"
+                          (or (nth 2 parsed) "unknown Calc error"))))
          (composed
           (symtex-with-calc-language 'sage
                                      (math-compose-expr parsed 0)))
@@ -197,8 +311,10 @@ processed."
           (funcall postprocessor composed postprocessor)))
     postprocessed))
 
-;; everything from here on is a mild tweaking of stuff from Emacs
-;; calc, including a couple pending bug fixes
+;; Everything from here on is a mild tweaking of stuff from Emacs
+;; Calc, including a couple pending bug fixes.  These definitions are
+;; advised only while `symtex--parse-latex-for-sage' runs, so loading
+;; SymTeX does not alter Calc elsewhere.
 ;; (https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01776.html,
 ;; https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01777.html)
 
@@ -222,8 +338,17 @@ processed."
 (defvar calc-lang-allow-underscores)
 (defvar calc-lang-allow-percentsigns)
 (defvar math-exp-str) ;; Dyn scoped
+(defvar calc-user-parse-table)
+(defvar math-rb-close)
+
+(declare-function math-parse-fortran-subscr "calc-aent")
+(declare-function math-read-expr-level "calc-aent")
+(declare-function math-read-factor "calc-aent")
+(declare-function math-read-vector "calc-vec")
+(declare-function math-restore-placeholders "calc-aent")
 
 (defun symtex--fix-math-read-factor ()
+  "Read one Calc factor with SymTeX's TeX parsing adjustments."
   (let ((math-expr-opers (math-expr-ops))
         op)
     (cond ((eq math-exp-token 'number)
@@ -448,10 +573,8 @@ processed."
 	          (math-read-angle-brackets))
 	         (t (throw 'syntax "Expected a number")))))
 
-(advice-add 'math-read-factor :override #'symtex--fix-math-read-factor)
-
-
 (defun symtex--fix-math-read-vector ()
+  "Read one Calc vector without adding a spurious final element."
   (let* ((val (list (math-read-expr-level 0)))
 	        (last val))
     (while (progn
@@ -472,9 +595,8 @@ processed."
 	         (setq last rest))))
     (cons 'vec val)))
 
-(advice-add 'math-read-vector :override #'symtex--fix-math-read-vector)
-
 (defun symtex--fix-math-read-matrix (mat)
+  "Read the remaining Calc matrix rows and append them to MAT."
   (while (equal math-expr-data ";")
     (math-read-token)
     (while (eq math-exp-token 'space)
@@ -483,9 +605,14 @@ processed."
       (setq mat (nconc mat (list (math-read-vector))))))
   mat)
 
-(advice-add 'math-read-matrix :override #'symtex--fix-math-read-matrix)
+;; Clean up global advice left behind when upgrading from SymTeX 0.1 in
+;; a running Emacs session.
+(advice-remove 'math-read-factor #'symtex--fix-math-read-factor)
+(advice-remove 'math-read-vector #'symtex--fix-math-read-vector)
+(advice-remove 'math-read-matrix #'symtex--fix-math-read-matrix)
 
 (defun symtex--math-compose-subscr (a)
+  "Compose Calc subscript expression A as Sage code."
   (if (eq (car (nth 1 a))
           'var)
       (let* ((var (cadr (nth 1 a)))
@@ -510,6 +637,7 @@ processed."
 (put 'sage 'math-compose-subscr #'symtex--math-compose-subscr)
 
 (defun symtex--math-matrix-formatter (a)
+  "Compose Calc matrix expression A as Sage code."
   (list 'horiz
         "matrix("
         math-comp-left-bracket
@@ -522,6 +650,8 @@ processed."
 (put 'sage 'math-matrix-formatter #'symtex--math-matrix-formatter)
 
 (defun symtex--math-compose-var (a _prec)
+  "Compose Calc variable expression A as Sage code.
+_PREC is the surrounding operator precedence and is unused."
   (let ((sn (nth 1 a)))
     (format "var(\"%s\")"
             sn)))

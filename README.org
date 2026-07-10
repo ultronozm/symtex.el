@@ -51,16 +51,26 @@ I use [[https://github.com/progfolio/elpaca][elpaca]], with the following in my 
   (:map LaTeX-mode-map ("C-c v" . symtex-dwim)))
 #+end_src
 
-Before using symtex commands, you need to have a running Sage process in a buffer.  By default, symtex expects this buffer to be named ~*Sage*~.  You can create this buffer in one of two ways:
+Before using symtex commands, you need to have a running Sage process in a buffer.  You can create this buffer in one of two ways:
 
 1. If using sage-shell-mode: Run =M-x sage-shell:run-sage= to start a Sage process.
-2. If using sage-mode: Run =M-x run-sage= to start a Sage process.
+2. If using sage-mode: Run =M-x sage-run= to start a Sage process.
 
-If you prefer to use a different buffer name for your Sage process, you can customize the variable =symtex-process-buffer=:
+By default, symtex prefers a buffer named ~*Sage*~.  Some versions of sage-mode instead create ~*Python*~.  You do not need to rename that buffer: if there is exactly one live Sage process, symtex detects and uses it automatically.
+
+If you have multiple Sage processes, or prefer to use a specific process buffer, customize =symtex-process-buffer=:
 
 #+begin_src elisp
 (setq symtex-process-buffer "*My-Custom-Sage-Buffer*")
 #+end_src
 
+The usual workflow is:
+
+1. Start Sage with one of the commands above.
+2. In a TeX buffer, select a math expression and run =M-x symtex-dwim= (or =C-c v= with the sample binding).  Enter a Sage expression involving =expr=, such as =factor(expr)= or =expr^3=.
+3. Yank the TeX result from the kill ring with =C-y=.
+
+With an active region, =C-u C-c v= runs =symtex-expand-expression= without prompting.  With no active region, =C-c v= evaluates the Sage expression you enter directly, which is useful for retrieving a value computed in the shared Sage session.
+
 * Issues
-- This package relies on override advice to compensate for a few Emacs calc bugs related to TeX parsing.  Patches have been submitted upstream (https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01776.html, https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01777.html) that should eventually make such override advice unnecessary. 
+- This package temporarily uses override advice while parsing to compensate for a few Emacs calc bugs related to TeX parsing.  Patches have been submitted upstream (https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01776.html, https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01777.html) that should eventually make such override advice unnecessary.

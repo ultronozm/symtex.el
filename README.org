@@ -72,5 +72,37 @@ The usual workflow is:
 
 With an active region, =C-u C-c v= runs =symtex-expand-expression= without prompting.  With no active region, =C-c v= evaluates the Sage expression you enter directly, which is useful for retrieving a value computed in the shared Sage session.
 
+* Variables and existing Sage values
+By default, variables in selected TeX use their existing Sage bindings.
+An undefined name is automatically created and bound as a symbolic variable.
+This applies to subscripted variables such as =x_1= as well.
+
+For example, first enter this in the Sage buffer:
+#+begin_src python
+K = CyclotomicField(21)
+u = K.gen()
+omega, zeta = u^7, u^3
+alpha = zeta + zeta^6
+#+end_src
+Then select the TeX expression
+~-\alpha^2+\alpha+2+\omega(3-\alpha-2\alpha^2)~
+and run =symtex-dwim= with =expr^3=.  The result is computed exactly
+in the cyclotomic field, without replacing your definitions.
+For these exact field elements, evaluating =expr= already gives the reduced
+value; methods such as =expr.simplify()= are unnecessary and may not exist.
+The default expansion command expands objects that support =expand()=
+and otherwise returns their value.
+
+Existing bindings include Sage's predefined functions and constants.
+To use the original behavior, which always creates symbolic variables
+and replaces any existing bindings, customize =symtex-variable-policy=
+to =symbolic=:
+#+begin_src elisp
+(setq symtex-variable-policy 'symbolic)
+#+end_src
+The policy affects selected TeX, not Sage code entered at the prompt.
+Changing it does not repair expressions already built from symbolic
+variables; define the desired Sage values and evaluate the TeX again.
+
 * Issues
 - This package temporarily uses override advice while parsing to compensate for a few Emacs calc bugs related to TeX parsing.  Patches have been submitted upstream (https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01776.html, https://lists.gnu.org/archive/html/bug-gnu-emacs/2024-01/msg01777.html) that should eventually make such override advice unnecessary.

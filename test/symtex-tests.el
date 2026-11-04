@@ -71,8 +71,9 @@
       (kill-buffer fallback-name))))
 
 (ert-deftest symtex-test-parse-latex-for-sage ()
-  (should (equal (symtex--parse-latex-for-sage "x (y+1)")
-                 "var(\"x\")*(var(\"y\") + 1)"))
+  (let ((symtex-variable-policy 'symbolic))
+    (should (equal (symtex--parse-latex-for-sage "x (y+1)")
+                   "var(\"x\")*(var(\"y\") + 1)")))
   (should
    (equal
     (symtex--parse-latex-for-sage
@@ -88,6 +89,46 @@
    (advice-member-p #'symtex--fix-math-read-vector 'math-read-vector))
   (should-not
    (advice-member-p #'symtex--fix-math-read-matrix 'math-read-matrix)))
+
+(ert-deftest symtex-test-variable-policies-in-sage ()
+  "Check generated TeX expressions in a real Sage namespace."
+  (skip-unless (executable-find "sage"))
+  (let* ((symtex-variable-policy 'existing)
+         (code
+          (concat
+           "K = CyclotomicField(21); u = K.gen(); "
+           "omega = u**7; alpha = u**3 + u**18; "
+           (symtex--code
+            "expr**3 == 7*(2+3*omega**2)"
+            "-\\alpha^2+\\alpha+2+\\omega(3-\\alpha-2\\alpha^2)")
+           "; assert result_expr; assert omega == u**7; "
+           "assert alpha == u**3 + u**18; "
+           (symtex--code
+            symtex-expand-expression
+            "(2+\\alpha-\\alpha^2+\\omega(3-\\alpha-2\\alpha^2))(2+\\alpha-\\alpha^2+\\omega^{-1}(3-\\alpha-2\\alpha^2))")
+           "; assert result_expr == 7; "
+           (symtex--code symtex-expand-expression "(symtexmissing+1)^2")
+           "; assert result_expr == symtexmissing**2+2*symtexmissing+1; "
+           (symtex--code
+            symtex-expand-expression
+            "\\begin{pmatrix}1&1\\\\0&1\\end{pmatrix}^2")
+           "; assert result_expr == matrix([[1,2],[0,1]]); "
+           "x = 0; x_1 = 7; "
+           (symtex--code "expr" "x+x_1")
+           "; assert result_expr == 7; assert x == 0; "
+           (symtex--code "expr" "symtexmissing+1")
+           "; assert str(symtexmissing) == 'symtexmissing'; "
+           "assert result_expr == symtexmissing+1; "
+           "x = None; "
+           (symtex--code "expr" "x")
+           "; assert result_expr is None; assert x is None; "
+           (let ((symtex-variable-policy 'symbolic))
+             (symtex--code "expr" "x+x_1"))
+           "; assert str(x) == 'x'; assert str(x_1) == 'x_1'")))
+    (with-temp-buffer
+      (let ((status (call-process "sage" nil t nil "-c" code)))
+        (ert-info ((buffer-string))
+          (should (equal status 0)))))))
 
 (provide 'symtex-tests)
 ;;; symtex-tests.el ends here

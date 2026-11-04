@@ -43,6 +43,18 @@
   :prefix "symtex-"
   :group 'applications)
 
+(defcustom symtex-variable-policy 'existing
+  "How to resolve variables in selected TeX expressions.
+With `existing', use an existing binding in the Sage session, or
+create and bind a symbolic variable if the name is undefined.
+Existing bindings include Sage's predefined names, functions, and
+constants.  With `symbolic', always create and bind a symbolic
+variable, replacing any existing binding (the original behavior).
+This option does not affect Sage code entered at the prompt."
+  :type '(choice (const :tag "Use existing bindings; create missing variables" existing)
+                 (const :tag "Always bind symbolic variables" symbolic))
+  :group 'symtex)
+
 (defconst symtex-input-format-string
   "expr=%s;")
 
@@ -205,8 +217,10 @@ result is stored in the kill ring; see the documentation for
     (symtex-process op input)))
 
 (defcustom symtex-expand-expression
-  "expr.expand()*2/2"
-  "Sage expression for expansion."
+  "(expr.expand() if hasattr(expr, 'expand') else expr)*2/2"
+  "Sage expression for expansion.
+Expand objects that support expansion; otherwise return their value.
+For example, number-field elements are already reduced exactly."
   :type 'string)
 
 (defun symtex--read-expand-region (beg end)
@@ -623,8 +637,7 @@ processed."
                "_"
                (number-to-string sub))))
         (list 'horiz
-              (format "var(\"%s\")"
-                      var-str)))
+              (symtex--sage-variable var-str)))
     (list 'horiz
 
           (math-compose-expr (nth 1 a)
@@ -649,12 +662,21 @@ processed."
 
 (put 'sage 'math-matrix-formatter #'symtex--math-matrix-formatter)
 
+(defun symtex--sage-variable (name)
+  "Return Sage code resolving NAME according to `symtex-variable-policy'."
+  (pcase symtex-variable-policy
+    ('existing
+     ;; Keep var() in the unevaluated branch when a binding exists:
+     ;; even globals().get(name, var(name)) would overwrite that binding.
+     (format "(globals()[%S] if %S in globals() else var(%S))"
+             name name name))
+    ('symbolic (format "var(%S)" name))
+    (_ (error "Unknown SymTeX variable policy: %S" symtex-variable-policy))))
+
 (defun symtex--math-compose-var (a _prec)
   "Compose Calc variable expression A as Sage code.
 _PREC is the surrounding operator precedence and is unused."
-  (let ((sn (nth 1 a)))
-    (format "var(\"%s\")"
-            sn)))
+  (symtex--sage-variable (symbol-name (nth 1 a))))
 
 (put 'sage 'math-var-formatter #'symtex--math-compose-var)
 
